@@ -40,4 +40,9 @@ cat >"${TMP_FILE}" <<JSON
 JSON
 
 mv "${TMP_FILE}" "${TARGET_FILE}"
+chmod 664 "${TARGET_FILE}" || true
+if command -v setfacl >/dev/null 2>&1; then
+  setfacl -m u:101:r-- "${TARGET_FILE}" || true
+  setfacl -m g::rw-,m::rw- "${TARGET_FILE}" || true
+fi
 echo "wrote ${TARGET_FILE}"
