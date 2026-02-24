@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "generated_at": "2026-02-24T13:30:00Z",
+  "ttl_seconds": 120,
+  "title": "Home Dashboard",
+  "summary": "Private MagicDNS dashboard",
+  "sections": [
+    {
+      "id": "core",
+      "label": "Core Services",
+      "cards": [
+        {
+          "id": "openclaw",
+          "type": "service",
+          "title": "OpenClaw",
+          "status": "healthy",
+          "url": "https://homeserver.tailac3bda.ts.net",
+          "description": "Automation gateway",
+          "tags": ["automation", "ai"],
+          "metrics": [
+            { "key": "jobs_running", "value": 2 },
+            { "key": "latency_ms", "value": 80 }
+          ],
+          "updated_at": "2026-02-24T13:30:00Z"
+        },
+        {
+          "id": "n8n",
+          "type": "service",
+          "title": "n8n",
+          "status": "warning",
+          "url": "https://n8n.example.invalid",
+          "description": "Workflow orchestrator",
+          "tags": ["workflow"],
+          "metrics": [
+            { "key": "queue", "value": 5 }
+          ],
+          "updated_at": "2026-02-24T13:30:00Z"
+        }
+      ]
+    }
+  ],
+  "alerts": [
+    {
+      "id": "disk",
+      "severity": "warning",
+      "message": "Disk usage over 80%",
+      "updated_at": "2026-02-24T13:30:00Z"
+    }
+  ]
+}
