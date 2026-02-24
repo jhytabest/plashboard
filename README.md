@@ -16,33 +16,20 @@ curl -I http://127.0.0.1:18888/healthz
 ## Deploy to homeserver
 ```bash
 ssh hs 'mkdir -p /srv/home-stack/plash-dashboard'
-rsync -az --delete ./ hs:/srv/home-stack/plash-dashboard/
+rsync -az --delete --exclude .git ./ hs:/srv/home-stack/plash-dashboard/
 ssh hs 'cd /srv/home-stack/plash-dashboard && docker compose up -d'
 ```
 
-## Expose on MagicDNS (existing homeserver URL under /plash)
-This keeps existing `/` route untouched and adds `/plash/`.
+## Expose on MagicDNS (dedicated Plash port)
+This keeps existing `https://homeserver.tailac3bda.ts.net/` OpenClaw route untouched and adds a dedicated HTTPS port for Plash.
 
 ```bash
-ssh hs '
-set -euo pipefail
-cfg=$(mktemp)
-new=$(mktemp)
-
-tailscale serve get-config > "$cfg"
-
-jq '
-  .Web["homeserver.tailac3bda.ts.net:443"].Handlers["/plash/"] = {"Proxy":"http://127.0.0.1:18888"}
-' "$cfg" > "$new"
-
-tailscale serve set-config "$new"
-tailscale serve status
-'
+ssh hs 'tailscale serve --bg --yes --https=8444 18888 && tailscale serve status'
 ```
 
 Then open:
-- `https://homeserver.tailac3bda.ts.net/plash/`
-- `https://homeserver/plash/` (if short MagicDNS resolves)
+- `https://homeserver.tailac3bda.ts.net:8444/`
+- `https://homeserver:8444/` (if short MagicDNS resolves)
 
 ## Automation updates
 Use atomic writes to avoid partial JSON reads:
