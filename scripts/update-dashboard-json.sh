@@ -9,15 +9,27 @@ mkdir -p "${TARGET_DIR}"
 
 cat >"${TMP_FILE}" <<JSON
 {
-  "version": "1.0",
+  "version": "3.0",
   "generated_at": "$(date -u +%FT%TZ)",
   "ttl_seconds": 120,
   "title": "Home Dashboard",
   "summary": "Updated by automation",
+  "ui": {
+    "timezone": "Europe/Berlin",
+    "density": "sparse",
+    "motion": "subtle",
+    "gutters": {
+      "top": 56,
+      "bottom": 106,
+      "side": 28
+    }
+  },
   "sections": [
     {
       "id": "automation",
       "label": "Automation",
+      "order": 10,
+      "layout": { "span": 6 },
       "cards": [
         {
           "id": "openclaw",
@@ -26,10 +38,16 @@ cat >"${TMP_FILE}" <<JSON
           "status": "healthy",
           "url": "https://homeserver.tailac3bda.ts.net",
           "description": "Updated by update-dashboard-json.sh",
+          "layout": { "span": 12 },
           "tags": ["automation"],
           "metrics": [
             { "key": "timestamp", "value": "$(date -u +%H:%M:%S)" }
           ],
+          "chart": {
+            "kind": "sparkline",
+            "label": "jobs",
+            "points": [2, 2, 3, 2, 3, 4]
+          },
           "updated_at": "$(date -u +%FT%TZ)"
         }
       ]
