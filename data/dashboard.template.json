@@ -1,50 +1,163 @@
 {
-  "version": "1.0",
-  "generated_at": "2026-02-24T13:30:00Z",
-  "ttl_seconds": 120,
-  "title": "Home Dashboard",
-  "summary": "Private MagicDNS dashboard",
+  "version": "3.0",
+  "generated_at": "2026-02-24T20:12:00Z",
+  "ttl_seconds": 90,
+  "title": "Sebastien Surface",
+  "summary": "High-contrast monochrome wallboard.",
+  "ui": {
+    "timezone": "Europe/Berlin",
+    "density": "sparse",
+    "motion": "subtle",
+    "gutters": {
+      "top": 56,
+      "bottom": 106,
+      "side": 28
+    }
+  },
   "sections": [
     {
-      "id": "core",
-      "label": "Core Services",
+      "id": "focus",
+      "label": "Focus",
+      "order": 10,
+      "layout": {
+        "span": 6
+      },
+      "cards": [
+        {
+          "id": "today",
+          "type": "snapshot",
+          "title": "Today",
+          "status": "healthy",
+          "description": "Two deep-work blocks, one admin block.",
+          "priority": 10,
+          "layout": {
+            "span": 12
+          },
+          "metrics": [
+            { "key": "focus_blocks", "value": 2 },
+            { "key": "buffer_minutes", "value": 45 }
+          ],
+          "updated_at": "2026-02-24T20:12:00Z"
+        },
+        {
+          "id": "tasks",
+          "type": "tasks",
+          "title": "Tasks",
+          "status": "warning",
+          "description": "One overdue item remains.",
+          "layout": {
+            "span": 6
+          },
+          "metrics": [
+            { "key": "inbox", "value": 7 },
+            { "key": "overdue", "value": 1 }
+          ],
+          "updated_at": "2026-02-24T20:12:00Z"
+        },
+        {
+          "id": "calendar",
+          "type": "calendar",
+          "title": "Calendar",
+          "status": "healthy",
+          "description": "No meetings before 13:00.",
+          "layout": {
+            "span": 6
+          },
+          "tags": ["calendar", "work"],
+          "updated_at": "2026-02-24T20:12:00Z"
+        }
+      ]
+    },
+    {
+      "id": "systems",
+      "label": "Systems",
+      "order": 20,
+      "layout": {
+        "span": 6
+      },
       "cards": [
         {
           "id": "openclaw",
           "type": "service",
-          "title": "OpenClaw",
+          "title": "OpenClaw Gateway",
           "status": "healthy",
+          "description": "Automation gateway serving dashboard payload.",
           "url": "https://homeserver.tailac3bda.ts.net",
-          "description": "Automation gateway",
-          "tags": ["automation", "ai"],
+          "layout": {
+            "span": 12
+          },
           "metrics": [
             { "key": "jobs_running", "value": 2 },
-            { "key": "latency_ms", "value": 80 }
+            { "key": "queue", "value": 3 }
           ],
-          "updated_at": "2026-02-24T13:30:00Z"
+          "updated_at": "2026-02-24T20:12:00Z"
         },
         {
-          "id": "n8n",
-          "type": "service",
-          "title": "n8n",
-          "status": "warning",
-          "url": "https://n8n.example.invalid",
-          "description": "Workflow orchestrator",
-          "tags": ["workflow"],
-          "metrics": [
-            { "key": "queue", "value": 5 }
-          ],
-          "updated_at": "2026-02-24T13:30:00Z"
+          "id": "latency",
+          "type": "graph",
+          "title": "Gateway Latency",
+          "status": "healthy",
+          "description": "Last 12 refresh intervals.",
+          "layout": {
+            "span": 12
+          },
+          "chart": {
+            "kind": "sparkline",
+            "label": "latency",
+            "unit": "ms",
+            "points": [
+              78,
+              74,
+              76,
+              72,
+              69,
+              71,
+              66,
+              65,
+              67,
+              64,
+              63,
+              62
+            ]
+          },
+          "updated_at": "2026-02-24T20:12:00Z"
+        }
+      ]
+    },
+    {
+      "id": "signals",
+      "label": "Signals",
+      "order": 30,
+      "layout": {
+        "span": 4
+      },
+      "cards": [
+        {
+          "id": "automation-hourly",
+          "type": "graph",
+          "title": "Automations / hour",
+          "status": "healthy",
+          "description": "Execution volume in the last 10 hours.",
+          "layout": {
+            "span": 12
+          },
+          "chart": {
+            "kind": "bars",
+            "label": "runs",
+            "unit": "",
+            "points": [1, 2, 2, 3, 3, 4, 3, 5, 4, 4]
+          },
+          "updated_at": "2026-02-24T20:12:00Z"
         }
       ]
     }
   ],
   "alerts": [
     {
-      "id": "disk",
+      "id": "queue-slow",
       "severity": "warning",
-      "message": "Disk usage over 80%",
-      "updated_at": "2026-02-24T13:30:00Z"
+      "message": "Automation queue above baseline.",
+      "updated_at": "2026-02-24T20:12:00Z"
     }
   ]
 }

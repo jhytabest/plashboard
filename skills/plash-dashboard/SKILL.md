@@ -26,6 +26,20 @@ Use this skill for content changes to the private Plash dashboard.
 - Do not use `write`, `edit`, or `apply_patch` directly on dashboard JSON.
 - Always update through `scripts/dashboard_write.py`.
 - Only modify dashboard content JSON. Do not edit Docker, Tailscale, systemd, or network config.
-- Keep `version` in `1.x`.
+- Keep `version` in `3.x`.
 - Keep stable IDs for sections/cards/alerts when updating existing items.
 - Use UTC ISO timestamps (e.g. `2026-02-24T14:20:00Z`).
+
+## Contract Notes (v3)
+- `ui` is required:
+  - `timezone`: IANA zone (default `Europe/Berlin`)
+  - `density`: `sparse|compact`
+  - `motion`: `none|subtle`
+  - `gutters`: `{ top, bottom, side }` in pixels
+- Optional chart support on cards via `chart`:
+  - `kind`: `sparkline|bars`
+  - `points`: numeric array (at least 2 values)
+  - optional `label`, `unit`, `min`, `max`
+- Layout control is direct only (no variants):
+  - sections: `hidden`, `order`, `layout`
+  - cards: `hidden`, `priority`, `layout`
