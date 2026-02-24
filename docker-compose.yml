@@ -1,0 +1,11 @@
+services:
+  plash-web:
+    image: nginx:alpine
+    container_name: plash-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18888:80"
+    volumes:
+      - ./site:/usr/share/nginx/html:ro
+      - ./data:/usr/share/nginx/html/data:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
