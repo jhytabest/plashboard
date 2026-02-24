@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET_DIR="${1:-/srv/home-stack/plash-dashboard/data}"
+TARGET_DIR="${1:-/var/lib/openclaw/plash-data}"
 TARGET_FILE="${TARGET_DIR}/dashboard.json"
 TMP_FILE="${TARGET_FILE}.tmp"
 

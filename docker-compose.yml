@@ -7,5 +7,5 @@ services:
       - "127.0.0.1:18888:80"
     volumes:
       - ./site:/usr/share/nginx/html:ro
-      - ./data:/var/lib/plash-data:ro
+      - /var/lib/openclaw/plash-data:/var/lib/plash-data:ro
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
