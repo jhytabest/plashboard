@@ -30,11 +30,11 @@ curl -I http://127.0.0.1:18888/healthz
 - Schema: `schema/dashboard.schema.json`
 - Live payload must be `version: "3.x"` with a required `ui` block:
   - `timezone`: IANA timezone (default `Europe/Berlin`)
-  - `density`: `sparse|compact`
   - `motion`: `none|subtle`
   - `gutters`: `{ top, bottom, side }` in pixels
 - Sections/cards support direct layout controls (`hidden`, `order`, `priority`, `layout.span`).
 - Cards may include optional `chart` data for rendered sparkline/bar graphs.
+- Alerts can be unbounded in JSON; the UI rotates visible alerts.
 
 ## Manual deploy to homeserver
 ```bash

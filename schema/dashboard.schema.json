@@ -12,10 +12,9 @@
     "summary": { "type": "string" },
     "ui": {
       "type": "object",
-      "required": ["timezone", "density", "motion", "gutters"],
+      "required": ["timezone", "motion", "gutters"],
       "properties": {
         "timezone": { "type": "string", "minLength": 1 },
-        "density": { "type": "string", "enum": ["sparse", "compact"] },
         "motion": { "type": "string", "enum": ["none", "subtle"] },
         "gutters": {
           "type": "object",
@@ -45,21 +44,16 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["id", "type", "title", "status"],
+              "required": ["id", "type", "title"],
               "properties": {
                 "id": { "type": "string", "minLength": 1 },
                 "type": { "type": "string" },
                 "title": { "type": "string", "minLength": 1 },
-                "status": { "type": "string", "enum": ["healthy", "warning", "critical", "unknown"] },
                 "url": { "type": "string" },
                 "description": { "type": "string" },
                 "hidden": { "type": "boolean" },
                 "priority": { "type": "integer" },
                 "layout": { "$ref": "#/$defs/layout" },
-                "tags": {
-                  "type": "array",
-                  "items": { "type": "string" }
-                },
                 "metrics": {
                   "type": "array",
                   "items": {
@@ -72,8 +66,7 @@
                     "additionalProperties": false
                   }
                 },
-                "chart": { "$ref": "#/$defs/chart" },
-                "updated_at": { "type": "string", "format": "date-time" }
+                "chart": { "$ref": "#/$defs/chart" }
               },
               "additionalProperties": false
             }
@@ -90,8 +83,7 @@
         "properties": {
           "id": { "type": "string" },
           "severity": { "type": "string", "enum": ["info", "warning", "critical"] },
-          "message": { "type": "string" },
-          "updated_at": { "type": "string", "format": "date-time" }
+          "message": { "type": "string" }
         },
         "additionalProperties": false
       }

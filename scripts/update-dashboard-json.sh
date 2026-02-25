@@ -16,7 +16,6 @@ cat >"${TMP_FILE}" <<JSON
   "summary": "Updated by automation",
   "ui": {
     "timezone": "Europe/Berlin",
-    "density": "sparse",
     "motion": "subtle",
     "gutters": {
       "top": 56,
@@ -35,11 +34,9 @@ cat >"${TMP_FILE}" <<JSON
           "id": "openclaw",
           "type": "service",
           "title": "OpenClaw",
-          "status": "healthy",
           "url": "https://homeserver.tailac3bda.ts.net",
           "description": "Updated by update-dashboard-json.sh",
           "layout": { "span": 12 },
-          "tags": ["automation"],
           "metrics": [
             { "key": "timestamp", "value": "$(date -u +%H:%M:%S)" }
           ],
@@ -48,7 +45,7 @@ cat >"${TMP_FILE}" <<JSON
             "label": "jobs",
             "points": [2, 2, 3, 2, 3, 4]
           },
-          "updated_at": "$(date -u +%FT%TZ)"
+          "priority": 10
         }
       ]
     }
