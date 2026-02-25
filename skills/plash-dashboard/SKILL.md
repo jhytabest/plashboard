@@ -45,8 +45,12 @@ Use this skill for content changes to the private Plash dashboard.
   - `kind`: `sparkline|bars`
   - `points`: numeric array (at least 2 values)
   - optional `label`, `unit`
+  - `label` is the legend text shown next to the card title (for example `Temperature`)
 - Layout control is direct only (no variants):
   - sections: `hidden`, `order`, `layout`
   - cards: `hidden`, `priority`, `layout`
-- Cards require: `id`, `type`, `title`
+- Cards require: `id`, `title`
+- Optional card text fields:
+  - `description` (short line)
+  - `long_description` (one or two longer sentences)
 - Alerts require: `id`, `severity`, `message`

@@ -207,17 +207,6 @@ function balanceCardLayout(cards) {
   }));
 }
 
-function renderMetrics(metrics = []) {
-  const rows = metrics
-    .map((entry) => asObject(entry))
-    .filter((entry) => entry.key !== undefined && entry.value !== undefined)
-    .map((entry) => `<div class="metric-row"><span>${esc(entry.key)}</span><span>${esc(entry.value)}</span></div>`)
-    .join('');
-
-  if (!rows) return '';
-  return `<div class="metrics">${rows}</div>`;
-}
-
 function normalizeChart(chartRaw) {
   const chart = asObject(chartRaw);
   const points = Array.isArray(chart.points)
@@ -236,7 +225,7 @@ function normalizeChart(chartRaw) {
     min: minPoint,
     max: maxPoint,
     unit: typeof chart.unit === 'string' ? chart.unit : '',
-    label: typeof chart.label === 'string' ? chart.label : 'trend'
+    label: typeof chart.label === 'string' ? chart.label : ''
   };
 }
 
@@ -302,8 +291,7 @@ function renderBars(points, min, max, minLabel, maxLabel) {
   `;
 }
 
-function renderChart(chartRaw) {
-  const chart = normalizeChart(chartRaw);
+function renderChart(chart) {
   if (!chart) return '';
 
   const latest = chart.points[chart.points.length - 1];
@@ -325,7 +313,7 @@ function renderChart(chartRaw) {
     <div class="chart-wrap chart-${chart.kind}">
       ${chartMarkup}
       <div class="chart-meta">
-        <span>${esc(chart.label)} ${esc(latestLabel)}</span>
+        <span>${esc(latestLabel)}</span>
         <span class="delta ${deltaClass}">${esc(deltaLabel)}</span>
       </div>
     </div>
@@ -333,21 +321,25 @@ function renderChart(chartRaw) {
 }
 
 function renderCard(card) {
+  const chart = normalizeChart(card.chart);
   const source = sourceFromUrl(card.url);
-  const chartMarkup = renderChart(card.chart);
-  const metaParts = [card.type, source].filter(Boolean).map((part) => esc(part)).join(' | ');
+  const chartMarkup = renderChart(chart);
+  const metaParts = [source].filter(Boolean).map((part) => esc(part)).join(' | ');
   const metaMarkup = metaParts ? `<p class="card-meta">${metaParts}</p>` : '';
   const description = card.description ? `<p class="card-copy">${esc(card.description)}</p>` : '';
+  const longDescription = card.long_description ? `<p class="card-long-description">${esc(card.long_description)}</p>` : '';
+  const legendMarkup = chart && chart.label ? `<span class="card-legend">${esc(chart.label)}</span>` : '';
 
   return `
     <article class="card-item" style="--card-span:${asNumber(card._computedSpan, cardSpanFor(card))}">
       <div class="card-head">
         <h3 class="card-title">${esc(card.title || '')}</h3>
+        ${legendMarkup}
       </div>
       ${description}
       ${chartMarkup}
       ${metaMarkup}
-      ${renderMetrics(Array.isArray(card.metrics) ? card.metrics : [])}
+      ${longDescription}
     </article>
   `;
 }

@@ -33,7 +33,8 @@ curl -I http://127.0.0.1:18888/healthz
   - `motion`: `none|subtle`
   - `gutters`: `{ top, bottom, side }` in pixels
 - Sections/cards support direct layout controls (`hidden`, `order`, `priority`, `layout.span`).
-- Cards may include optional `chart` data for rendered sparkline/bar graphs.
+- Cards require `id` and `title`; optional text fields are `description` and `long_description`.
+- Cards may include optional `chart` data for rendered sparkline/bar graphs (`label` is shown as legend next to title).
 - Alerts can be unbounded in JSON; the UI rotates visible alerts.
 
 ## Manual deploy to homeserver
