@@ -12,6 +12,9 @@ const DEFAULT_UI = {
     side: 28
   }
 };
+const GRID_COLUMNS = 12;
+const CARD_GRID_GAP = 10;
+const SECTION_CHROME_HEIGHT = 46;
 
 let currentUi = { ...DEFAULT_UI, gutters: { ...DEFAULT_UI.gutters } };
 let loadTimer = null;
@@ -73,24 +76,213 @@ function applyFrameUi(ui) {
   root.setProperty('--gutter-side', `${ui.gutters.side}px`);
 }
 
-function sectionSpanFor(section) {
-  const configured = asNumber(asObject(section.layout).span, NaN);
-  if (Number.isFinite(configured)) return clamp(configured, 3, 12, 4);
-  return 4;
-}
-
-function cardSpanFor(card) {
-  const configured = asNumber(asObject(card.layout).span, NaN);
-  if (Number.isFinite(configured)) return clamp(configured, 3, 12, 6);
-  return 6;
-}
-
 function cardPriority(card) {
   const fromLayout = asNumber(asObject(card.layout).priority, NaN);
   const fromCard = asNumber(card.priority, NaN);
   if (Number.isFinite(fromLayout)) return fromLayout;
   if (Number.isFinite(fromCard)) return fromCard;
   return 100;
+}
+
+function compactText(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+function estimateTextLines(value, charsPerLine, maxLines) {
+  const compact = compactText(value);
+  if (!compact) return 0;
+  const safeCharsPerLine = Math.max(1, charsPerLine);
+  const lines = Math.max(1, Math.ceil(compact.length / safeCharsPerLine));
+  return Math.min(maxLines, lines);
+}
+
+function estimateCardHeight(card, cardSpan, sectionSpan) {
+  const safeCardSpan = clamp(cardSpan, 3, GRID_COLUMNS, 6);
+  const safeSectionSpan = clamp(sectionSpan, 3, GRID_COLUMNS, 4);
+  const widthScale = (safeSectionSpan / 4) * (safeCardSpan / GRID_COLUMNS);
+  const charsPerLine = Math.max(14, Math.round(58 * widthScale));
+  const hasChart = Boolean(card._chart);
+  let base = 50;
+
+  base += estimateTextLines(card.title, charsPerLine, 2) * 12;
+  base += estimateTextLines(card.description, charsPerLine, 3) * 12;
+  base += estimateTextLines(card.url, charsPerLine, 2) * 11;
+  base += estimateTextLines(card.long_description, charsPerLine, 4) * 12;
+
+  if (hasChart) {
+    base += 98;
+    if (card.long_description) base += 6;
+  }
+
+  return clamp(base, 82, 288, 140);
+}
+
+function chooseCardSpan(card, sectionSpan) {
+  const hasChart = Boolean(card._chart);
+  const titleLength = compactText(card.title).length;
+  const descriptionLength = compactText(card.description).length;
+  const longLength = compactText(card.long_description).length;
+  const density = titleLength + descriptionLength + longLength;
+
+  if (hasChart && longLength > 70) return 12;
+  if (hasChart) return sectionSpan >= 6 ? 6 : 12;
+  if (longLength > 120) return 12;
+  if (density > 170) return 6;
+  if (density < 48 && !card.url) return 4;
+  return 6;
+}
+
+function buildLayoutRows(items, recalcHeightForSpan) {
+  const remaining = [...items].sort((a, b) => {
+    if (b.height !== a.height) return b.height - a.height;
+    if (a.importance !== b.importance) return a.importance - b.importance;
+    return a.stableKey.localeCompare(b.stableKey);
+  });
+  const rows = [];
+
+  while (remaining.length) {
+    const row = [];
+    let used = 0;
+    let rowHeight = 0;
+    const seed = remaining.shift();
+
+    row.push(seed);
+    used += seed.span;
+    rowHeight = Math.max(rowHeight, seed.height);
+
+    while (used < GRID_COLUMNS) {
+      const space = GRID_COLUMNS - used;
+      let bestIndex = -1;
+      let bestScore = Number.POSITIVE_INFINITY;
+
+      for (let index = 0; index < remaining.length; index += 1) {
+        const candidate = remaining[index];
+        if (candidate.span > space) continue;
+
+        const leftoverAfter = space - candidate.span;
+        const heightDelta = Math.abs(candidate.height - rowHeight);
+        let score = leftoverAfter * 5 + heightDelta * 0.08 + candidate.importance * 0.015;
+        if (candidate.span === space) score -= 3;
+
+        if (score < bestScore) {
+          bestScore = score;
+          bestIndex = index;
+        }
+      }
+
+      if (bestIndex < 0) break;
+
+      const next = remaining.splice(bestIndex, 1)[0];
+      row.push(next);
+      used += next.span;
+      rowHeight = Math.max(rowHeight, next.height);
+    }
+
+    if (used < GRID_COLUMNS && row.length) {
+      const leftover = GRID_COLUMNS - used;
+      const lastIndex = row.length - 1;
+      const last = row[lastIndex];
+      const nextSpan = last.span + leftover;
+      row[lastIndex] = {
+        ...last,
+        span: nextSpan,
+        height: recalcHeightForSpan ? recalcHeightForSpan(last.item, nextSpan) : last.height
+      };
+    }
+
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+function packCards(cards, sectionSpan) {
+  const entries = cards.map((card, index) => {
+    const span = chooseCardSpan(card, sectionSpan);
+    const height = estimateCardHeight(card, span, sectionSpan);
+    return {
+      item: card,
+      span,
+      height,
+      importance: card._importance,
+      stableKey: `${card.id || card.title || 'card'}-${index}`
+    };
+  });
+  const rows = buildLayoutRows(entries, (card, nextSpan) => estimateCardHeight(card, nextSpan, sectionSpan));
+  const rowHeights = rows.map((row) => row.reduce((max, entry) => Math.max(max, entry.height), 0));
+  const cardsHeight = rowHeights.reduce((sum, rowHeight) => sum + rowHeight, 0)
+    + CARD_GRID_GAP * Math.max(0, rowHeights.length - 1);
+  const estimatedHeight = SECTION_CHROME_HEIGHT + cardsHeight;
+
+  return {
+    cards: rows.flat().map((entry) => ({ ...entry.item, _computedSpan: entry.span })),
+    estimatedHeight,
+    rowCount: rows.length
+  };
+}
+
+function sectionSpanCandidates(cards) {
+  const chartCount = cards.filter((card) => Boolean(card._chart)).length;
+  const longCount = cards.filter((card) => compactText(card.long_description).length > 70).length;
+  const candidates = new Set([4, 6]);
+
+  if (cards.length <= 2 && chartCount === 0 && longCount === 0) candidates.add(3);
+  if (cards.length >= 5 || chartCount >= 2 || longCount >= 2) candidates.add(8);
+  if (cards.length >= 7) candidates.add(12);
+
+  return [...candidates].sort((a, b) => a - b);
+}
+
+function buildSectionLayout(section, cards, sectionSpan) {
+  const packed = packCards(cards, sectionSpan);
+  return {
+    ...section,
+    _sourceCards: cards,
+    cards: packed.cards,
+    _computedSpan: sectionSpan,
+    _estimatedHeight: packed.estimatedHeight,
+    _rowCount: packed.rowCount,
+    _importance: cards.reduce((lowest, card) => Math.min(lowest, card._importance), 100)
+  };
+}
+
+function chooseSectionLayout(section, cards) {
+  const candidates = sectionSpanCandidates(cards);
+  let best = null;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  candidates.forEach((span) => {
+    const candidate = buildSectionLayout(section, cards, span);
+    const score = candidate._estimatedHeight * (1 + span / 18) + candidate._rowCount * 8;
+
+    if (score < bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  });
+
+  return best;
+}
+
+function packSections(sections) {
+  const entries = sections.map((section, index) => ({
+    item: section,
+    span: section._computedSpan,
+    height: section._estimatedHeight,
+    importance: section._importance,
+    stableKey: `${section.id || section.label || 'section'}-${index}`
+  }));
+  const rows = buildLayoutRows(entries, null);
+  return rows.flat().map((entry) => {
+    if (entry.item._sourceCards && entry.span !== entry.item._computedSpan) {
+      return buildSectionLayout(entry.item, entry.item._sourceCards, entry.span);
+    }
+    return {
+      ...entry.item,
+      _computedSpan: entry.span
+    };
+  });
 }
 
 function sourceFromUrl(url) {
@@ -148,63 +340,6 @@ function renderAlerts(alerts = []) {
   alertRotateTimer = setInterval(() => {
     renderAt(alertRotateIndex + 1);
   }, rotateEveryMs);
-}
-
-function balanceGridLayout(items, spanFromItem) {
-  const rows = [];
-  let row = [];
-  let used = 0;
-
-  items.forEach((item) => {
-    const preferredSpan = spanFromItem(item);
-
-    if (row.length && used + preferredSpan > 12) {
-      rows.push(row);
-      row = [];
-      used = 0;
-    }
-
-    const nextSpan = Math.max(1, Math.min(12, preferredSpan, 12 - used));
-    row.push({ item, span: nextSpan });
-    used += nextSpan;
-
-    if (used === 12) {
-      rows.push(row);
-      row = [];
-      used = 0;
-    }
-  });
-
-  if (row.length) {
-    rows.push(row);
-  }
-
-  rows.forEach((nextRow) => {
-    const usedCols = nextRow.reduce((sum, entry) => sum + entry.span, 0);
-    const leftover = 12 - usedCols;
-    if (leftover <= 0) return;
-    if (nextRow.length === 1) {
-      nextRow[0].span += leftover;
-      return;
-    }
-    nextRow[nextRow.length - 1].span += leftover;
-  });
-
-  return rows.flat();
-}
-
-function balanceSectionLayout(sections) {
-  return balanceGridLayout(sections, sectionSpanFor).map((entry) => ({
-    ...entry.item,
-    _computedSpan: entry.span
-  }));
-}
-
-function balanceCardLayout(cards) {
-  return balanceGridLayout(cards, cardSpanFor).map((entry) => ({
-    ...entry.item,
-    _computedSpan: entry.span
-  }));
 }
 
 function normalizeChart(chartRaw) {
@@ -321,7 +456,7 @@ function renderChart(chart) {
 }
 
 function renderCard(card) {
-  const chart = normalizeChart(card.chart);
+  const chart = card._chart || normalizeChart(card.chart);
   const source = sourceFromUrl(card.url);
   const chartMarkup = renderChart(chart);
   const metaParts = [source].filter(Boolean).map((part) => esc(part)).join(' | ');
@@ -329,9 +464,13 @@ function renderCard(card) {
   const description = card.description ? `<p class="card-copy">${esc(card.description)}</p>` : '';
   const longDescription = card.long_description ? `<p class="card-long-description">${esc(card.long_description)}</p>` : '';
   const legendMarkup = chart && chart.label ? `<span class="card-legend">${esc(chart.label)}</span>` : '';
+  const cardClasses = ['card-item'];
+
+  if (chart) cardClasses.push('has-chart');
+  if (card.long_description) cardClasses.push('has-long-copy');
 
   return `
-    <article class="card-item" style="--card-span:${asNumber(card._computedSpan, cardSpanFor(card))}">
+    <article class="${cardClasses.join(' ')}" style="--card-span:${asNumber(card._computedSpan, 6)}">
       <div class="card-head">
         <h3 class="card-title">${esc(card.title || '')}</h3>
         ${legendMarkup}
@@ -345,7 +484,7 @@ function renderCard(card) {
 }
 
 function renderSections(sections = []) {
-  const resolvedSections = sections
+  const normalizedSections = sections
     .map((entry) => asObject(entry))
     .filter((section) => Object.keys(section).length > 0 && !section.hidden)
     .map((section) => {
@@ -353,22 +492,29 @@ function renderSections(sections = []) {
         .map((card) => asObject(card))
         .filter((card) => Object.keys(card).length > 0)
         .filter((card) => !card.hidden && card.title)
-        .sort((a, b) => cardPriority(a) - cardPriority(b));
+        .map((card, index) => ({
+          ...card,
+          _importance: cardPriority(card),
+          _chart: normalizeChart(card.chart),
+          _stable: `${card.id || card.title || 'card'}-${index}`
+        }))
+        .sort((a, b) => {
+          if (a._importance !== b._importance) return a._importance - b._importance;
+          return a._stable.localeCompare(b._stable);
+        });
 
-      return {
-        ...section,
-        cards: balanceCardLayout(cards)
-      };
+      if (!cards.length) return null;
+
+      return chooseSectionLayout(section, cards);
     })
-    .filter((section) => section.cards.length)
-    .sort((a, b) => asNumber(a.order, 100) - asNumber(b.order, 100));
+    .filter(Boolean);
 
-  const packedSections = balanceSectionLayout(resolvedSections);
+  const packedSections = packSections(normalizedSections);
 
   sectionsEl.innerHTML = packedSections
     .map((section) => {
       const cards = section.cards.map(renderCard).join('');
-      const span = asNumber(section._computedSpan, sectionSpanFor(section));
+      const span = asNumber(section._computedSpan, 4);
       return `
         <section class="section-panel" style="--section-span:${span}">
           <p class="section-label">${esc(section.label || '')}</p>

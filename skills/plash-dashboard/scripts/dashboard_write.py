@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import math
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -13,12 +14,14 @@ ALLOWED_ALERT_SEVERITY = {"info", "warning", "critical"}
 ALLOWED_MOTION = {"none", "subtle"}
 ALLOWED_CHART_KIND = {"sparkline", "bars"}
 
-TARGET_VIEWPORT_HEIGHT = 1080
+TARGET_VIEWPORT_HEIGHT = int(os.getenv("PLASH_TARGET_VIEWPORT_HEIGHT", "1080"))
+LAYOUT_SAFETY_MARGIN = max(0, int(os.getenv("PLASH_LAYOUT_SAFETY_MARGIN", "24")))
 WALLPAPER_GAP = 14
 SECTION_GRID_GAP = 14
 CARD_GRID_GAP = 10
 ALERT_HEIGHT = 52
 SECTION_CHROME_HEIGHT = 46
+GRID_COLUMNS = 12
 
 
 def now_iso() -> str:
@@ -187,67 +190,132 @@ def card_priority(card: dict) -> int:
     return 100
 
 
-def section_span(section: dict) -> int:
-    layout = section.get("layout") if isinstance(section.get("layout"), dict) else {}
-    configured = as_number(layout.get("span"), 4)
-    return int(clamp(configured, 3, 12))
+def compact_text(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.split())
 
 
-def card_span(card: dict) -> int:
-    layout = card.get("layout") if isinstance(card.get("layout"), dict) else {}
-    configured = as_number(layout.get("span"), 6)
-    return int(clamp(configured, 3, 12))
+def card_has_chart(card: dict) -> bool:
+    chart = card.get("chart")
+    if not isinstance(chart, dict):
+        return False
+    kind = chart.get("kind")
+    points = chart.get("points")
+    return kind in ALLOWED_CHART_KIND and isinstance(points, list) and len(points) >= 2
 
 
-def balance_rows(items: List[dict], span_for: Callable[[dict], int]) -> List[List[dict]]:
+def estimate_text_lines(value: object, chars_per_line: int, max_lines: int) -> int:
+    if not isinstance(value, str):
+        return 0
+    cleaned = " ".join(value.split())
+    if not cleaned:
+        return 0
+
+    safe_chars_per_line = max(1, chars_per_line)
+    lines = max(1, math.ceil(len(cleaned) / safe_chars_per_line))
+    return min(max_lines, lines)
+
+
+def estimate_card_height(card: dict, card_span: int, section_span: int) -> int:
+    safe_card_span = int(clamp(card_span, 3, GRID_COLUMNS))
+    safe_section_span = int(clamp(section_span, 3, GRID_COLUMNS))
+    width_scale = (safe_section_span / 4) * (safe_card_span / GRID_COLUMNS)
+    chars_per_line = max(14, round(58 * width_scale))
+
+    base = 50
+    base += estimate_text_lines(card.get("title"), chars_per_line, 2) * 12
+    base += estimate_text_lines(card.get("description"), chars_per_line, 3) * 12
+    base += estimate_text_lines(card.get("url"), chars_per_line, 2) * 11
+    base += estimate_text_lines(card.get("long_description"), chars_per_line, 4) * 12
+
+    if card_has_chart(card):
+        base += 98
+        if card.get("long_description"):
+            base += 6
+
+    return int(clamp(base, 82, 288))
+
+
+def choose_card_span(card: dict, section_span: int) -> int:
+    has_chart = card_has_chart(card)
+    title_length = len(compact_text(card.get("title")))
+    description_length = len(compact_text(card.get("description")))
+    long_length = len(compact_text(card.get("long_description")))
+    density = title_length + description_length + long_length
+
+    if has_chart and long_length > 70:
+        return 12
+    if has_chart:
+        return 6 if section_span >= 6 else 12
+    if long_length > 120:
+        return 12
+    if density > 170:
+        return 6
+    if density < 48 and not card.get("url"):
+        return 4
+    return 6
+
+
+def stable_key(value: object, fallback: str) -> str:
+    if isinstance(value, str) and value:
+        return value
+    return fallback
+
+
+def pack_rows(entries: List[dict], recalc_height_for_span: Optional[Callable[[dict, int], int]] = None) -> List[List[dict]]:
+    remaining = [dict(entry) for entry in entries]
+    remaining.sort(key=lambda entry: (-entry["height"], entry["importance"], entry["stable"]))
     rows: List[List[dict]] = []
-    row: List[dict] = []
-    used = 0
 
-    for item in items:
-        preferred_span = span_for(item)
-        if row and used + preferred_span > 12:
-            rows.append(row)
-            row = []
-            used = 0
+    while remaining:
+        row: List[dict] = []
+        used = 0
+        row_height = 0
+        seed = remaining.pop(0)
 
-        next_span = max(1, min(12, preferred_span, 12 - used))
-        row.append({"item": item, "span": next_span})
-        used += next_span
+        row.append(seed)
+        used += seed["span"]
+        row_height = max(row_height, seed["height"])
 
-        if used == 12:
-            rows.append(row)
-            row = []
-            used = 0
+        while used < GRID_COLUMNS:
+            space = GRID_COLUMNS - used
+            best_index = -1
+            best_score: Optional[float] = None
 
-    if row:
+            for index, candidate in enumerate(remaining):
+                if candidate["span"] > space:
+                    continue
+
+                leftover_after = space - candidate["span"]
+                height_delta = abs(candidate["height"] - row_height)
+                score = leftover_after * 5.0 + height_delta * 0.08 + candidate["importance"] * 0.015
+                if candidate["span"] == space:
+                    score -= 3.0
+
+                if best_score is None or score < best_score:
+                    best_score = score
+                    best_index = index
+
+            if best_index < 0:
+                break
+
+            picked = remaining.pop(best_index)
+            row.append(picked)
+            used += picked["span"]
+            row_height = max(row_height, picked["height"])
+
+        if used < GRID_COLUMNS and row:
+            leftover = GRID_COLUMNS - used
+            last = dict(row[-1])
+            last["span"] += leftover
+            if recalc_height_for_span:
+                last["height"] = recalc_height_for_span(last["item"], last["span"])
+            row[-1] = last
+
         rows.append(row)
 
-    for next_row in rows:
-        used_cols = sum(entry["span"] for entry in next_row)
-        leftover = 12 - used_cols
-        if leftover <= 0:
-            continue
-        if len(next_row) == 1:
-            next_row[0]["span"] += leftover
-            continue
-        next_row[-1]["span"] += leftover
-
     return rows
-
-
-def estimate_card_height(card: dict) -> int:
-    base = 104
-    if card.get("description"):
-        base += 14
-    if card.get("chart"):
-        base += 92
-    if card.get("url"):
-        base += 12
-    if card.get("long_description"):
-        base += 28
-
-    return int(clamp(base, 96, 260))
 
 
 def visible_cards(section: dict) -> List[dict]:
@@ -255,28 +323,101 @@ def visible_cards(section: dict) -> List[dict]:
     if not isinstance(raw_cards, list):
         return []
 
-    cards = [
-        card
-        for card in raw_cards
-        if isinstance(card, dict) and not card.get("hidden") and isinstance(card.get("title"), str) and card.get("title")
-    ]
-    cards.sort(key=card_priority)
+    cards = []
+    for index, card in enumerate(raw_cards):
+        if not isinstance(card, dict):
+            continue
+        if card.get("hidden"):
+            continue
+        if not isinstance(card.get("title"), str) or not card.get("title"):
+            continue
+
+        next_card = dict(card)
+        next_card["_importance"] = card_priority(card)
+        next_card["_stable"] = stable_key(card.get("id"), f"card-{index}")
+        cards.append(next_card)
+
+    cards.sort(key=lambda card: (card["_importance"], card["_stable"]))
     return cards
 
 
-def estimate_section_height(section: dict) -> int:
+def pack_cards(cards: List[dict], section_span: int) -> dict:
+    entries = []
+    for index, card in enumerate(cards):
+        span = choose_card_span(card, section_span)
+        entries.append(
+            {
+                "item": card,
+                "span": span,
+                "height": estimate_card_height(card, span, section_span),
+                "importance": card["_importance"],
+                "stable": f"{card['_stable']}-{index}",
+            }
+        )
+
+    card_rows = pack_rows(entries, lambda card, next_span: estimate_card_height(card, next_span, section_span))
+    row_heights = [max(entry["height"] for entry in row) for row in card_rows]
+    cards_height = sum(row_heights) + CARD_GRID_GAP * max(0, len(row_heights) - 1)
+    packed_cards = []
+
+    for row in card_rows:
+        for entry in row:
+            packed = dict(entry["item"])
+            packed["_computed_span"] = entry["span"]
+            packed_cards.append(packed)
+
+    return {
+        "cards": packed_cards,
+        "row_count": len(card_rows),
+        "estimated_height": SECTION_CHROME_HEIGHT + cards_height,
+    }
+
+
+def section_span_candidates(cards: List[dict]) -> List[int]:
+    chart_count = sum(1 for card in cards if card_has_chart(card))
+    long_count = sum(1 for card in cards if len(compact_text(card.get("long_description"))) > 70)
+    candidates = {4, 6}
+
+    if len(cards) <= 2 and chart_count == 0 and long_count == 0:
+        candidates.add(3)
+    if len(cards) >= 5 or chart_count >= 2 or long_count >= 2:
+        candidates.add(8)
+    if len(cards) >= 7:
+        candidates.add(12)
+
+    return sorted(candidates)
+
+
+def choose_section_layout(section: dict) -> Optional[dict]:
     cards = visible_cards(section)
     if not cards:
-        return 0
+        return None
 
-    card_rows = balance_rows(cards, card_span)
-    row_heights = []
-    for row in card_rows:
-        row_height = max(estimate_card_height(entry["item"]) for entry in row)
-        row_heights.append(row_height)
+    section_importance = min((card["_importance"] for card in cards), default=100)
+    section_stable = stable_key(section.get("id"), stable_key(section.get("label"), "section"))
+    best_layout: Optional[dict] = None
+    best_score: Optional[float] = None
 
-    cards_height = sum(row_heights) + CARD_GRID_GAP * max(0, len(row_heights) - 1)
-    return SECTION_CHROME_HEIGHT + cards_height
+    for section_span in section_span_candidates(cards):
+        packed = pack_cards(cards, section_span)
+        score = packed["estimated_height"] * (1 + section_span / 18) + packed["row_count"] * 8
+        candidate = {
+            "section": section,
+            "span": section_span,
+            "height": packed["estimated_height"],
+            "importance": section_importance,
+            "stable": section_stable,
+        }
+
+        if best_score is None or score < best_score:
+            best_score = score
+            best_layout = candidate
+
+    return best_layout
+
+
+def pack_sections(sections: List[dict]) -> List[List[dict]]:
+    return pack_rows(sections)
 
 
 def estimate_layout_height(payload: dict) -> int:
@@ -285,28 +426,21 @@ def estimate_layout_height(payload: dict) -> int:
     alerts_height = ALERT_HEIGHT if visible_alerts else 0
 
     sections = payload.get("sections", []) if isinstance(payload.get("sections"), list) else []
-    visible_sections_with_heights = []
+    section_layouts = []
     for section in sections:
         if not isinstance(section, dict):
             continue
         if section.get("hidden"):
             continue
-        section_height = estimate_section_height(section)
-        if section_height <= 0:
-            continue
-        visible_sections_with_heights.append((section, section_height))
+        section_layout = choose_section_layout(section)
+        if section_layout:
+            section_layouts.append(section_layout)
 
-    if not visible_sections_with_heights:
+    if not section_layouts:
         return alerts_height
 
-    visible_sections = [section for section, _ in visible_sections_with_heights]
-    section_height_map = {id(section): height for section, height in visible_sections_with_heights}
-
-    section_rows = balance_rows(visible_sections, section_span)
-    section_row_heights = []
-    for row in section_rows:
-        row_height = max(section_height_map[id(entry["item"])] for entry in row)
-        section_row_heights.append(row_height)
+    section_rows = pack_sections(section_layouts)
+    section_row_heights = [max(entry["height"] for entry in row) for row in section_rows]
 
     sections_height = sum(section_row_heights) + SECTION_GRID_GAP * max(0, len(section_row_heights) - 1)
     between = WALLPAPER_GAP if alerts_height and sections_height else 0
@@ -336,7 +470,7 @@ def validate_layout_budget(payload: dict) -> None:
 
     top = int(as_number(gutters.get("top"), 56))
     bottom = int(as_number(gutters.get("bottom"), 106))
-    available = TARGET_VIEWPORT_HEIGHT - top - bottom
+    available = max(0, TARGET_VIEWPORT_HEIGHT - top - bottom - LAYOUT_SAFETY_MARGIN)
     required = estimate_layout_height(payload)
 
     if required <= available:
@@ -346,7 +480,7 @@ def validate_layout_budget(payload: dict) -> None:
     candidates = drop_candidate_ids(payload)
     candidate_text = ", ".join(candidates) if candidates else "(none)"
     fail(
-        f"layout budget exceeded by {overflow}px (required={required}px, available={available}px). "
+        f"layout budget exceeded by {overflow}px (required={required}px, available={available}px, safety={LAYOUT_SAFETY_MARGIN}px). "
         f"Reduce visible cards or shorten card content. Suggested hide order: {candidate_text}"
     )
 
