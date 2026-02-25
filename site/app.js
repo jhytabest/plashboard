@@ -302,8 +302,8 @@ function renderChart(chart) {
   const numberFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
   const latestLabel = `${numberFormat.format(latest)}${chart.unit}`;
   const deltaLabel = `${deltaPrefix}${numberFormat.format(delta)}${chart.unit}`;
-  const minLabel = formatChartScale(chart.min, chart.unit);
-  const maxLabel = formatChartScale(chart.max, chart.unit);
+  const minLabel = `${numberFormat.format(chart.min)}${chart.unit}`;
+  const maxLabel = `${numberFormat.format(chart.max)}${chart.unit}`;
 
   const chartMarkup = chart.kind === 'bars'
     ? renderBars(chart.points, chart.min, chart.max, minLabel, maxLabel)
