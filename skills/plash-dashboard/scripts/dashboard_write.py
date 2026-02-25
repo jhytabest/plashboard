@@ -64,21 +64,6 @@ def clamp(value: float, minimum: float, maximum: float) -> float:
     return min(maximum, max(minimum, value))
 
 
-def validate_layout(value: object, path: str) -> None:
-    if not isinstance(value, dict):
-        fail(f"{path} must be an object")
-
-    allowed = {"span", "priority"}
-    for key in value:
-        if key not in allowed:
-            fail(f"{path}.{key} is not supported")
-
-    if "span" in value:
-        validate_int(value["span"], f"{path}.span", minimum=1, maximum=12)
-    if "priority" in value:
-        validate_int(value["priority"], f"{path}.priority")
-
-
 def validate_chart(value: object, path: str) -> None:
     if not isinstance(value, dict):
         fail(f"{path} must be an object")
@@ -154,12 +139,6 @@ def validate_card(card: dict, path: str) -> None:
         fail(f"{path}.description must be a string")
     if "long_description" in card and not isinstance(card["long_description"], str):
         fail(f"{path}.long_description must be a string")
-    if "hidden" in card and not isinstance(card["hidden"], bool):
-        fail(f"{path}.hidden must be a boolean")
-    if "priority" in card:
-        validate_int(card["priority"], f"{path}.priority")
-    if "layout" in card:
-        validate_layout(card["layout"], f"{path}.layout")
     if "chart" in card:
         validate_chart(card["chart"], f"{path}.chart")
 
@@ -169,25 +148,11 @@ def validate_card(card: dict, path: str) -> None:
         "url",
         "description",
         "long_description",
-        "hidden",
-        "priority",
-        "layout",
         "chart",
     }
     for key in card:
         if key not in allowed_card_fields:
             fail(f"{path}.{key} is not supported")
-
-
-def card_priority(card: dict) -> int:
-    layout = card.get("layout") if isinstance(card.get("layout"), dict) else {}
-    from_layout = layout.get("priority")
-    if isinstance(from_layout, int):
-        return from_layout
-    from_card = card.get("priority")
-    if isinstance(from_card, int):
-        return from_card
-    return 100
 
 
 def compact_text(value: object) -> str:
@@ -257,12 +222,6 @@ def choose_card_span(card: dict, section_span: int) -> int:
     return 6
 
 
-def stable_key(value: object, fallback: str) -> str:
-    if isinstance(value, str) and value:
-        return value
-    return fallback
-
-
 def pack_rows(entries: List[dict], recalc_height_for_span: Optional[Callable[[dict, int], int]] = None) -> List[List[dict]]:
     remaining = [dict(entry) for entry in entries]
     remaining.sort(key=lambda entry: (-entry["height"], entry["importance"], entry["stable"]))
@@ -327,17 +286,13 @@ def visible_cards(section: dict) -> List[dict]:
     for index, card in enumerate(raw_cards):
         if not isinstance(card, dict):
             continue
-        if card.get("hidden"):
-            continue
         if not isinstance(card.get("title"), str) or not card.get("title"):
             continue
 
         next_card = dict(card)
-        next_card["_importance"] = card_priority(card)
-        next_card["_stable"] = stable_key(card.get("id"), f"card-{index}")
+        next_card["_importance"] = 100
+        next_card["_stable"] = f"{index:04d}"
         cards.append(next_card)
-
-    cards.sort(key=lambda card: (card["_importance"], card["_stable"]))
     return cards
 
 
@@ -388,13 +343,13 @@ def section_span_candidates(cards: List[dict]) -> List[int]:
     return sorted(candidates)
 
 
-def choose_section_layout(section: dict) -> Optional[dict]:
+def choose_section_layout(section: dict, section_index: int) -> Optional[dict]:
     cards = visible_cards(section)
     if not cards:
         return None
 
     section_importance = min((card["_importance"] for card in cards), default=100)
-    section_stable = stable_key(section.get("id"), stable_key(section.get("label"), "section"))
+    section_stable = f"{section_index:04d}"
     best_layout: Optional[dict] = None
     best_score: Optional[float] = None
 
@@ -427,12 +382,10 @@ def estimate_layout_height(payload: dict) -> int:
 
     sections = payload.get("sections", []) if isinstance(payload.get("sections"), list) else []
     section_layouts = []
-    for section in sections:
+    for section_index, section in enumerate(sections):
         if not isinstance(section, dict):
             continue
-        if section.get("hidden"):
-            continue
-        section_layout = choose_section_layout(section)
+        section_layout = choose_section_layout(section, section_index)
         if section_layout:
             section_layouts.append(section_layout)
 
@@ -452,23 +405,22 @@ def drop_candidate_ids(payload: dict, limit: int = 8) -> List[str]:
     sections = payload.get("sections", []) if isinstance(payload.get("sections"), list) else []
 
     for section in sections:
-        if not isinstance(section, dict) or section.get("hidden"):
+        if not isinstance(section, dict):
             continue
         for card in visible_cards(section):
             card_id = card.get("id")
             if not isinstance(card_id, str) or not card_id:
                 continue
-            candidates.append((card_priority(card), card_id))
+            candidates.append(card_id)
 
-    candidates.sort(key=lambda entry: (entry[0], entry[1]), reverse=True)
-    return [entry[1] for entry in candidates[:limit]]
+    return list(reversed(candidates))[:limit]
 
 
 def validate_layout_budget(payload: dict) -> None:
     ui = payload.get("ui", {}) if isinstance(payload.get("ui"), dict) else {}
     gutters = ui.get("gutters", {}) if isinstance(ui.get("gutters"), dict) else {}
 
-    top = int(as_number(gutters.get("top"), 56))
+    top = int(as_number(gutters.get("top"), 72))
     bottom = int(as_number(gutters.get("bottom"), 106))
     available = max(0, TARGET_VIEWPORT_HEIGHT - top - bottom - LAYOUT_SAFETY_MARGIN)
     required = estimate_layout_height(payload)
@@ -481,7 +433,7 @@ def validate_layout_budget(payload: dict) -> None:
     candidate_text = ", ".join(candidates) if candidates else "(none)"
     fail(
         f"layout budget exceeded by {overflow}px (required={required}px, available={available}px, safety={LAYOUT_SAFETY_MARGIN}px). "
-        f"Reduce visible cards or shorten card content. Suggested hide order: {candidate_text}"
+        f"Reduce card volume or shorten card content. Suggested drop candidates: {candidate_text}"
     )
 
 
@@ -524,13 +476,6 @@ def validate(payload: dict) -> None:
         validate_non_empty_string(section["id"], f"{section_path}.id")
         validate_non_empty_string(section["label"], f"{section_path}.label")
 
-        if "hidden" in section and not isinstance(section["hidden"], bool):
-            fail(f"{section_path}.hidden must be a boolean")
-        if "order" in section:
-            validate_int(section["order"], f"{section_path}.order")
-        if "layout" in section:
-            validate_layout(section["layout"], f"{section_path}.layout")
-
         cards = section["cards"]
         if not isinstance(cards, list):
             fail(f"{section_path}.cards must be a list")
@@ -542,7 +487,7 @@ def validate(payload: dict) -> None:
             validate_card(card, card_path)
 
         for key in section:
-            if key not in {"id", "label", "hidden", "order", "layout", "cards"}:
+            if key not in {"id", "label", "cards"}:
                 fail(f"{section_path}.{key} is not supported")
 
     alerts = payload.get("alerts", [])

@@ -37,9 +37,6 @@
         "properties": {
           "id": { "type": "string", "minLength": 1 },
           "label": { "type": "string", "minLength": 1 },
-          "hidden": { "type": "boolean" },
-          "order": { "type": "integer" },
-          "layout": { "$ref": "#/$defs/layout" },
           "cards": {
             "type": "array",
             "items": {
@@ -51,9 +48,6 @@
                 "url": { "type": "string" },
                 "description": { "type": "string" },
                 "long_description": { "type": "string" },
-                "hidden": { "type": "boolean" },
-                "priority": { "type": "integer" },
-                "layout": { "$ref": "#/$defs/layout" },
                 "chart": { "$ref": "#/$defs/chart" }
               },
               "additionalProperties": false
@@ -79,14 +73,6 @@
   },
   "additionalProperties": false,
   "$defs": {
-    "layout": {
-      "type": "object",
-      "properties": {
-        "span": { "type": "integer", "minimum": 1, "maximum": 12 },
-        "priority": { "type": "integer" }
-      },
-      "additionalProperties": false
-    },
     "chart": {
       "type": "object",
       "required": ["kind", "points"],

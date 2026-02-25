@@ -1,6 +1,6 @@
 :root {
   --mono: "SF Mono", "JetBrains Mono", "IBM Plex Mono", "Menlo", "Consolas", monospace;
-  --gutter-top: 56px;
+  --gutter-top: 72px;
   --gutter-bottom: 106px;
   --gutter-side: 28px;
   --frame-max-width: 1420px;
@@ -248,8 +248,7 @@ h1 {
 
 .card-copy,
 .card-meta,
-.card-long-description,
-.chart-meta {
+.card-long-description {
   margin: 0;
   font-size: 10px;
   color: var(--muted);
@@ -295,32 +294,6 @@ h1 {
 
 .chart-bar {
   fill: rgba(255, 255, 255, 0.72);
-}
-
-.chart-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-}
-
-.chart-meta > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chart-meta .delta {
-  color: var(--white);
-}
-
-.chart-meta .delta.up {
-  text-shadow: 0 0 12px rgba(255, 255, 255, 0.2);
-}
-
-.chart-meta .delta.down {
-  opacity: 0.85;
 }
 
 @media (max-width: 1200px) {

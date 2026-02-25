@@ -30,9 +30,10 @@ Use this skill for content changes to the private Plash dashboard.
 - Keep stable IDs for sections/cards/alerts when updating existing items.
 - Do not include per-card or per-alert `updated_at`.
 - Do not include card `status` or `tags`.
+- Do not include card/section layout or priority fields.
 - The writer enforces a viewport fit budget. If validation fails with `layout budget exceeded`, revise content and retry.
-- Retry order on layout failure:
-  1) Hide lowest-priority cards (`layout.priority`/`priority` high number = lower priority).
+- Retry sequence on layout failure:
+  1) Drop low-value cards.
   2) Shorten long descriptions and large metric lists.
   3) Keep alerts unlimited in JSON (alerts rotate in UI), but keep section card volume within fit budget.
 
@@ -46,9 +47,7 @@ Use this skill for content changes to the private Plash dashboard.
   - `points`: numeric array (at least 2 values)
   - optional `label`, `unit`
   - `label` is the legend text shown next to the card title (for example `Temperature`)
-- Layout control is direct only (no variants):
-  - sections: `hidden`, `order`, `layout`
-  - cards: `hidden`, `priority`, `layout`
+- No layout control fields are supported in payload; UI computes arrangement.
 - Cards require: `id`, `title`
 - Optional card text fields:
   - `description` (short line)

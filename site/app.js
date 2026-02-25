@@ -7,7 +7,7 @@ const DEFAULT_UI = {
   timezone: 'Europe/Berlin',
   motion: 'subtle',
   gutters: {
-    top: 56,
+    top: 72,
     bottom: 106,
     side: 28
   }
@@ -74,14 +74,6 @@ function applyFrameUi(ui) {
   root.setProperty('--gutter-top', `${ui.gutters.top}px`);
   root.setProperty('--gutter-bottom', `${ui.gutters.bottom}px`);
   root.setProperty('--gutter-side', `${ui.gutters.side}px`);
-}
-
-function cardPriority(card) {
-  const fromLayout = asNumber(asObject(card.layout).priority, NaN);
-  const fromCard = asNumber(card.priority, NaN);
-  if (Number.isFinite(fromLayout)) return fromLayout;
-  if (Number.isFinite(fromCard)) return fromCard;
-  return 100;
 }
 
 function compactText(value) {
@@ -205,8 +197,8 @@ function packCards(cards, sectionSpan) {
       item: card,
       span,
       height,
-      importance: card._importance,
-      stableKey: `${card.id || card.title || 'card'}-${index}`
+      importance: 100,
+      stableKey: `card-${String(index).padStart(4, '0')}`
     };
   });
   const rows = buildLayoutRows(entries, (card, nextSpan) => estimateCardHeight(card, nextSpan, sectionSpan));
@@ -243,7 +235,7 @@ function buildSectionLayout(section, cards, sectionSpan) {
     _computedSpan: sectionSpan,
     _estimatedHeight: packed.estimatedHeight,
     _rowCount: packed.rowCount,
-    _importance: cards.reduce((lowest, card) => Math.min(lowest, card._importance), 100)
+    _importance: 100
   };
 }
 
@@ -270,8 +262,8 @@ function packSections(sections) {
     item: section,
     span: section._computedSpan,
     height: section._estimatedHeight,
-    importance: section._importance,
-    stableKey: `${section.id || section.label || 'section'}-${index}`
+    importance: 100,
+    stableKey: `section-${String(index).padStart(4, '0')}`
   }));
   const rows = buildLayoutRows(entries, null);
   return rows.flat().map((entry) => {
@@ -364,21 +356,41 @@ function normalizeChart(chartRaw) {
   };
 }
 
-function formatChartScale(value, unit) {
-  const numberFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
-  return `${numberFormat.format(value)}${unit}`;
+function splitChartUnit(unitRaw) {
+  const unit = typeof unitRaw === 'string' ? unitRaw.trim() : '';
+  if (!unit) return { prefix: '', suffix: '' };
+  if (['$', '€', '£', '¥'].includes(unit)) return { prefix: unit, suffix: '' };
+  return { prefix: '', suffix: unit };
+}
+
+function formatChartValue(value, unitRaw) {
+  const safeValue = asNumber(value, 0);
+  const abs = Math.abs(safeValue);
+  const hasFraction = Math.abs(abs - Math.round(abs)) > 0.0001;
+  const numberFormat = new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: hasFraction ? 1 : 0,
+    maximumFractionDigits: 1
+  });
+  const { prefix, suffix } = splitChartUnit(unitRaw);
+  const sign = safeValue < 0 ? '-' : '';
+  return `${sign}${prefix}${numberFormat.format(abs)}${suffix}`;
 }
 
 function renderSparkline(points, min, max, minLabel, maxLabel) {
   const width = 360;
   const height = 64;
-  const pad = 6;
+  const leftLabelWidth = 44;
+  const rightPad = 6;
+  const topLineY = 8;
+  const bottomLineY = height - 8;
+  const plotStartX = leftLabelWidth + 2;
+  const plotEndX = width - rightPad;
   const span = Math.max(points.length - 1, 1);
   const range = max - min;
-  const toX = (index) => pad + (index / span) * (width - pad * 2);
+  const toX = (index) => plotStartX + (index / span) * (plotEndX - plotStartX);
   const toY = (value) => {
-    if (range <= 0) return height / 2;
-    return height - pad - ((value - min) / range) * (height - pad * 2);
+    if (range <= 0) return (topLineY + bottomLineY) / 2;
+    return bottomLineY - ((value - min) / range) * (bottomLineY - topLineY);
   };
 
   const path = points
@@ -387,10 +399,10 @@ function renderSparkline(points, min, max, minLabel, maxLabel) {
 
   return `
     <svg class="mini-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
-      <line class="chart-grid" x1="${pad}" y1="${pad}" x2="${(width - pad).toFixed(2)}" y2="${pad}"></line>
-      <line class="chart-grid" x1="${pad}" y1="${(height - pad).toFixed(2)}" x2="${(width - pad).toFixed(2)}" y2="${(height - pad).toFixed(2)}"></line>
-      <text class="chart-scale-label max" x="${(width - pad - 2).toFixed(2)}" y="${(pad + 1).toFixed(2)}" text-anchor="end" dominant-baseline="hanging">${esc(maxLabel)}</text>
-      <text class="chart-scale-label min" x="${(width - pad - 2).toFixed(2)}" y="${(height - pad - 1).toFixed(2)}" text-anchor="end" dominant-baseline="ideographic">${esc(minLabel)}</text>
+      <text class="chart-scale-label max" x="${(leftLabelWidth - 2).toFixed(2)}" y="${topLineY.toFixed(2)}" text-anchor="end" dominant-baseline="middle">${esc(maxLabel)}</text>
+      <text class="chart-scale-label min" x="${(leftLabelWidth - 2).toFixed(2)}" y="${bottomLineY.toFixed(2)}" text-anchor="end" dominant-baseline="middle">${esc(minLabel)}</text>
+      <line class="chart-grid" x1="${plotStartX.toFixed(2)}" y1="${topLineY.toFixed(2)}" x2="${plotEndX.toFixed(2)}" y2="${topLineY.toFixed(2)}"></line>
+      <line class="chart-grid" x1="${plotStartX.toFixed(2)}" y1="${bottomLineY.toFixed(2)}" x2="${plotEndX.toFixed(2)}" y2="${bottomLineY.toFixed(2)}"></line>
       <path class="chart-line" d="${path}"></path>
     </svg>
   `;
@@ -399,28 +411,33 @@ function renderSparkline(points, min, max, minLabel, maxLabel) {
 function renderBars(points, min, max, minLabel, maxLabel) {
   const width = 360;
   const height = 64;
-  const pad = 6;
+  const leftLabelWidth = 44;
+  const rightPad = 6;
+  const topLineY = 8;
+  const bottomLineY = height - 8;
+  const plotStartX = leftLabelWidth + 2;
+  const plotEndX = width - rightPad;
   const range = max - min;
-  const innerWidth = width - pad * 2;
+  const innerWidth = plotEndX - plotStartX;
   const barSpace = innerWidth / points.length;
   const barWidth = Math.max(2, barSpace * 0.56);
 
   const bars = points
     .map((value, index) => {
       const normalized = range <= 0 ? 0.5 : (value - min) / range;
-      const barHeight = Math.max(2, normalized * (height - pad * 2));
-      const x = pad + index * barSpace + (barSpace - barWidth) / 2;
-      const y = height - pad - barHeight;
+      const barHeight = Math.max(2, normalized * (bottomLineY - topLineY));
+      const x = plotStartX + index * barSpace + (barSpace - barWidth) / 2;
+      const y = bottomLineY - barHeight;
       return `<rect class="chart-bar" x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barWidth.toFixed(2)}" height="${barHeight.toFixed(2)}"></rect>`;
     })
     .join('');
 
   return `
     <svg class="mini-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
-      <line class="chart-grid" x1="${pad}" y1="${pad}" x2="${(width - pad).toFixed(2)}" y2="${pad}"></line>
-      <line class="chart-grid" x1="${pad}" y1="${(height - pad).toFixed(2)}" x2="${(width - pad).toFixed(2)}" y2="${(height - pad).toFixed(2)}"></line>
-      <text class="chart-scale-label max" x="${(width - pad - 2).toFixed(2)}" y="${(pad + 1).toFixed(2)}" text-anchor="end" dominant-baseline="hanging">${esc(maxLabel)}</text>
-      <text class="chart-scale-label min" x="${(width - pad - 2).toFixed(2)}" y="${(height - pad - 1).toFixed(2)}" text-anchor="end" dominant-baseline="ideographic">${esc(minLabel)}</text>
+      <text class="chart-scale-label max" x="${(leftLabelWidth - 2).toFixed(2)}" y="${topLineY.toFixed(2)}" text-anchor="end" dominant-baseline="middle">${esc(maxLabel)}</text>
+      <text class="chart-scale-label min" x="${(leftLabelWidth - 2).toFixed(2)}" y="${bottomLineY.toFixed(2)}" text-anchor="end" dominant-baseline="middle">${esc(minLabel)}</text>
+      <line class="chart-grid" x1="${plotStartX.toFixed(2)}" y1="${topLineY.toFixed(2)}" x2="${plotEndX.toFixed(2)}" y2="${topLineY.toFixed(2)}"></line>
+      <line class="chart-grid" x1="${plotStartX.toFixed(2)}" y1="${bottomLineY.toFixed(2)}" x2="${plotEndX.toFixed(2)}" y2="${bottomLineY.toFixed(2)}"></line>
       ${bars}
     </svg>
   `;
@@ -429,16 +446,8 @@ function renderBars(points, min, max, minLabel, maxLabel) {
 function renderChart(chart) {
   if (!chart) return '';
 
-  const latest = chart.points[chart.points.length - 1];
-  const first = chart.points[0];
-  const delta = latest - first;
-  const deltaPrefix = delta > 0 ? '+' : '';
-  const deltaClass = delta >= 0 ? 'up' : 'down';
-  const numberFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
-  const latestLabel = `${numberFormat.format(latest)}${chart.unit}`;
-  const deltaLabel = `${deltaPrefix}${numberFormat.format(delta)}${chart.unit}`;
-  const minLabel = `${numberFormat.format(chart.min)}${chart.unit}`;
-  const maxLabel = `${numberFormat.format(chart.max)}${chart.unit}`;
+  const minLabel = formatChartValue(chart.min, chart.unit);
+  const maxLabel = formatChartValue(chart.max, chart.unit);
 
   const chartMarkup = chart.kind === 'bars'
     ? renderBars(chart.points, chart.min, chart.max, minLabel, maxLabel)
@@ -447,10 +456,6 @@ function renderChart(chart) {
   return `
     <div class="chart-wrap chart-${chart.kind}">
       ${chartMarkup}
-      <div class="chart-meta">
-        <span>${esc(latestLabel)}</span>
-        <span class="delta ${deltaClass}">${esc(deltaLabel)}</span>
-      </div>
     </div>
   `;
 }
@@ -486,22 +491,16 @@ function renderCard(card) {
 function renderSections(sections = []) {
   const normalizedSections = sections
     .map((entry) => asObject(entry))
-    .filter((section) => Object.keys(section).length > 0 && !section.hidden)
+    .filter((section) => Object.keys(section).length > 0)
     .map((section) => {
       const cards = (Array.isArray(section.cards) ? section.cards : [])
         .map((card) => asObject(card))
         .filter((card) => Object.keys(card).length > 0)
-        .filter((card) => !card.hidden && card.title)
-        .map((card, index) => ({
+        .filter((card) => card.title)
+        .map((card) => ({
           ...card,
-          _importance: cardPriority(card),
-          _chart: normalizeChart(card.chart),
-          _stable: `${card.id || card.title || 'card'}-${index}`
-        }))
-        .sort((a, b) => {
-          if (a._importance !== b._importance) return a._importance - b._importance;
-          return a._stable.localeCompare(b._stable);
-        });
+          _chart: normalizeChart(card.chart)
+        }));
 
       if (!cards.length) return null;
 

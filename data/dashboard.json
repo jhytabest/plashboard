@@ -8,7 +8,7 @@
     "timezone": "Europe/Berlin",
     "motion": "subtle",
     "gutters": {
-      "top": 56,
+      "top": 72,
       "bottom": 106,
       "side": 28
     }
@@ -17,66 +17,42 @@
     {
       "id": "focus",
       "label": "Focus",
-      "order": 10,
-      "layout": {
-        "span": 6
-      },
       "cards": [
         {
           "id": "today",
           "title": "Today",
           "description": "Two deep-work blocks, one admin block.",
-          "long_description": "Focus blocks scheduled: 2, with 45 minutes of buffer before admin work.",
-          "priority": 10,
-          "layout": {
-            "span": 12
-          }
+          "long_description": "Focus blocks scheduled: 2, with 45 minutes of buffer before admin work."
         },
         {
           "id": "tasks",
           "title": "Tasks",
           "description": "One overdue item remains.",
-          "long_description": "Inbox has 7 items and 1 overdue task that should be cleared first.",
-          "layout": {
-            "span": 6
-          }
+          "long_description": "Inbox has 7 items and 1 overdue task that should be cleared first."
         },
         {
           "id": "calendar",
           "title": "Calendar",
-          "description": "No meetings before 13:00.",
-          "layout": {
-            "span": 6
-          }
+          "description": "No meetings before 13:00."
         }
       ]
     },
     {
       "id": "systems",
       "label": "Systems",
-      "order": 20,
-      "layout": {
-        "span": 6
-      },
       "cards": [
         {
           "id": "openclaw",
           "title": "OpenClaw Gateway",
           "description": "Automation gateway serving dashboard payload.",
           "long_description": "Gateway is stable with 2 jobs running and queue depth currently at 3.",
-          "url": "https://homeserver.tailac3bda.ts.net",
-          "layout": {
-            "span": 12
-          }
+          "url": "https://homeserver.tailac3bda.ts.net"
         },
         {
           "id": "latency",
           "title": "Gateway Latency",
           "description": "Last 12 refresh intervals.",
           "long_description": "Latency trend is improving from 78ms down to 62ms over the sampled window.",
-          "layout": {
-            "span": 12
-          },
           "chart": {
             "kind": "sparkline",
             "label": "Latency",
@@ -102,19 +78,12 @@
     {
       "id": "signals",
       "label": "Signals",
-      "order": 30,
-      "layout": {
-        "span": 4
-      },
       "cards": [
         {
           "id": "automation-hourly",
           "title": "Automations / hour",
           "description": "Execution volume in the last 10 hours.",
           "long_description": "Automation load is steady with a recent high of 5 runs in one hour.",
-          "layout": {
-            "span": 12
-          },
           "chart": {
             "kind": "bars",
             "label": "Automation Runs",
