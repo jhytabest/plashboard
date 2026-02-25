@@ -3,29 +3,17 @@
   "$id": "https://example.local/plash-dashboard.schema.json",
   "title": "Plash Dashboard Contract",
   "type": "object",
-  "required": ["version", "generated_at", "title", "ui", "sections"],
+  "required": ["title", "ui", "sections"],
   "properties": {
     "version": { "type": "string", "pattern": "^3\\.[0-9]+$" },
     "generated_at": { "type": "string", "format": "date-time" },
-    "ttl_seconds": { "type": "integer", "minimum": 5 },
     "title": { "type": "string", "minLength": 1 },
     "summary": { "type": "string" },
     "ui": {
       "type": "object",
-      "required": ["timezone", "motion", "gutters"],
+      "required": ["timezone"],
       "properties": {
-        "timezone": { "type": "string", "minLength": 1 },
-        "motion": { "type": "string", "enum": ["none", "subtle"] },
-        "gutters": {
-          "type": "object",
-          "required": ["top", "bottom", "side"],
-          "properties": {
-            "top": { "type": "integer", "minimum": 0 },
-            "bottom": { "type": "integer", "minimum": 0 },
-            "side": { "type": "integer", "minimum": 0 }
-          },
-          "additionalProperties": false
-        }
+        "timezone": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": false
     },

@@ -28,10 +28,11 @@ curl -I http://127.0.0.1:18888/healthz
 
 ## Dashboard Contract (v3)
 - Schema: `schema/dashboard.schema.json`
-- Live payload must be `version: "3.x"` with a required `ui` block:
+- Live payload requires a `ui` block:
   - `timezone`: IANA timezone (default `Europe/Berlin`)
-  - `motion`: `none|subtle`
-  - `gutters`: `{ top, bottom, side }` in pixels
+- Frame gutters are frontend-config only (`site/app.js`) and not payload-configurable.
+- `version` and `generated_at` are set automatically by the writer.
+- Refresh interval is fixed at 60 seconds (not payload-configurable).
 - Sections/cards are content-only; layout and sizing are computed by the UI.
 - Cards require `id` and `title`; optional text fields are `description` and `long_description`.
 - Cards may include optional `chart` data for rendered sparkline/bar graphs (`label` is shown as legend next to title).

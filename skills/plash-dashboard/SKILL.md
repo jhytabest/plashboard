@@ -17,7 +17,7 @@ Use this skill for content changes to the private Plash dashboard.
 2. Prepare a complete updated JSON document in a unique temp file, for example:
    - `tmp=$(mktemp /var/tmp/plash-dashboard.XXXXXX.json)`
 3. Apply the update with atomic replace:
-   - `python3 {baseDir}/scripts/dashboard_write.py --input "$tmp" --touch-generated-at`
+   - `python3 {baseDir}/scripts/dashboard_write.py --input "$tmp"`
 4. Verify:
    - `python3 -m json.tool /var/lib/openclaw/plash-data/dashboard.json >/dev/null`
    - `curl -fsS https://homeserver.tailac3bda.ts.net:8444/data/dashboard.json >/dev/null`
@@ -26,11 +26,11 @@ Use this skill for content changes to the private Plash dashboard.
 - Do not use `write`, `edit`, or `apply_patch` directly on dashboard JSON.
 - Always update through `scripts/dashboard_write.py`.
 - Only modify dashboard content JSON. Do not edit Docker, Tailscale, systemd, or network config.
-- Keep `version` in `3.x`.
 - Keep stable IDs for sections/cards/alerts when updating existing items.
 - Do not include per-card or per-alert `updated_at`.
 - Do not include card `status` or `tags`.
 - Do not include card/section layout or priority fields.
+- Do not include `motion`, `ttl_seconds`, `version`, or `generated_at` in the input payload.
 - The writer enforces a viewport fit budget. If validation fails with `layout budget exceeded`, revise content and retry.
 - Retry sequence on layout failure:
   1) Drop low-value cards.
@@ -40,8 +40,9 @@ Use this skill for content changes to the private Plash dashboard.
 ## Contract Notes (v3)
 - `ui` is required:
   - `timezone`: IANA zone (default `Europe/Berlin`)
-  - `motion`: `none|subtle`
-  - `gutters`: `{ top, bottom, side }` in pixels
+- Frame gutters are frontend-config only and must not be included in payload.
+- `version` and `generated_at` are set automatically by the writer.
+- Refresh interval is fixed at 60 seconds and not set in payload.
 - Optional chart support on cards via `chart`:
   - `kind`: `sparkline|bars`
   - `points`: numeric array (at least 2 values)

@@ -1,6 +1,6 @@
 :root {
   --mono: "SF Mono", "JetBrains Mono", "IBM Plex Mono", "Menlo", "Consolas", monospace;
-  --gutter-top: 72px;
+  --gutter-top: 96px;
   --gutter-bottom: 106px;
   --gutter-side: 28px;
   --frame-max-width: 1420px;
@@ -129,10 +129,6 @@ h1 {
   gap: 12px;
 }
 
-.alert-item.is-entering {
-  animation: alert-enter 260ms ease-out;
-}
-
 .alert-item.warning {
   border-left-color: var(--line-mid);
 }
@@ -153,14 +149,19 @@ h1 {
   font-size: 11px;
 }
 
-@keyframes alert-enter {
+.alert-message.is-entering,
+.alert-meta.is-entering {
+  animation: alert-text-swoosh 260ms ease-out;
+}
+
+@keyframes alert-text-swoosh {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateX(-8px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateX(0);
   }
 }
 
@@ -277,9 +278,11 @@ h1 {
 
 .chart-scale-label {
   fill: rgba(215, 215, 215, 0.9);
-  font-size: 9px;
+  font-size: 10px;
+  font-weight: 600;
   font-family: var(--mono);
-  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: 0;
 }
 
 .chart-line {

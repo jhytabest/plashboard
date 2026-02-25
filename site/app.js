@@ -2,21 +2,19 @@ const wallpaperEl = document.getElementById('wallpaper');
 const alertsEl = document.getElementById('alerts');
 const sectionsEl = document.getElementById('sections');
 
-const VALID_MOTION = new Set(['none', 'subtle']);
+const FRAME_GUTTERS = {
+  top: 96,
+  bottom: 106,
+  side: 28
+};
+
 const DEFAULT_UI = {
-  timezone: 'Europe/Berlin',
-  motion: 'subtle',
-  gutters: {
-    top: 72,
-    bottom: 106,
-    side: 28
-  }
+  timezone: 'Europe/Berlin'
 };
 const GRID_COLUMNS = 12;
 const CARD_GRID_GAP = 10;
 const SECTION_CHROME_HEIGHT = 46;
 
-let currentUi = { ...DEFAULT_UI, gutters: { ...DEFAULT_UI.gutters } };
 let loadTimer = null;
 let alertRotateTimer = null;
 let alertRotateIndex = 0;
@@ -56,21 +54,14 @@ function isValidTimezone(timezone) {
 
 function resolveUi(rawUi) {
   const ui = asObject(rawUi);
-  const gutters = asObject(ui.gutters);
   return {
     timezone: isValidTimezone(ui.timezone) ? ui.timezone : DEFAULT_UI.timezone,
-    motion: VALID_MOTION.has(ui.motion) ? ui.motion : DEFAULT_UI.motion,
-    gutters: {
-      top: clamp(gutters.top, 20, 180, DEFAULT_UI.gutters.top),
-      bottom: clamp(gutters.bottom, 72, 240, DEFAULT_UI.gutters.bottom),
-      side: clamp(gutters.side, 12, 80, DEFAULT_UI.gutters.side)
-    }
+    gutters: { ...FRAME_GUTTERS }
   };
 }
 
 function applyFrameUi(ui) {
   const root = document.documentElement.style;
-  currentUi = ui;
   root.setProperty('--gutter-top', `${ui.gutters.top}px`);
   root.setProperty('--gutter-bottom', `${ui.gutters.bottom}px`);
   root.setProperty('--gutter-side', `${ui.gutters.side}px`);
@@ -295,12 +286,12 @@ function clearAlertRotation() {
 function renderAlertFrame(alert, count, index) {
   const severity = ['warning', 'critical'].includes(alert.severity) ? alert.severity : 'info';
   const position = count > 1 ? ` | ${index + 1}/${count}` : '';
-  const animateClass = currentUi.motion === 'subtle' ? 'is-entering' : '';
+  const animateClass = 'is-entering';
 
   return `
-    <article class="alert-item ${esc(severity)} ${animateClass}">
-      <p class="alert-message">${esc(alert.message || 'Alert')}</p>
-      <p class="alert-meta">${esc(severity)}${esc(position)}</p>
+    <article class="alert-item ${esc(severity)}">
+      <p class="alert-message ${animateClass}">${esc(alert.message || 'Alert')}</p>
+      <p class="alert-meta ${animateClass}">${esc(severity)}${esc(position)}</p>
     </article>
   `;
 }
@@ -376,15 +367,35 @@ function formatChartValue(value, unitRaw) {
   return `${sign}${prefix}${numberFormat.format(abs)}${suffix}`;
 }
 
-function renderSparkline(points, min, max, minLabel, maxLabel) {
-  const width = 360;
-  const height = 64;
-  const leftLabelWidth = 44;
+function chartAxisLayout(width, height, maxLabel, minLabel) {
   const rightPad = 6;
   const topLineY = 8;
   const bottomLineY = height - 8;
-  const plotStartX = leftLabelWidth + 2;
+  const longest = Math.max(String(maxLabel).length, String(minLabel).length, 1);
+  const labelColumnWidth = clamp(longest * 7 + 10, 34, 124, 44);
+  const labelX = 2;
+  const plotStartX = labelColumnWidth + 4;
   const plotEndX = width - rightPad;
+
+  return {
+    labelX,
+    topLineY,
+    bottomLineY,
+    plotStartX,
+    plotEndX
+  };
+}
+
+function renderSparkline(points, min, max, minLabel, maxLabel) {
+  const width = 360;
+  const height = 64;
+  const {
+    labelX,
+    topLineY,
+    bottomLineY,
+    plotStartX,
+    plotEndX
+  } = chartAxisLayout(width, height, maxLabel, minLabel);
   const span = Math.max(points.length - 1, 1);
   const range = max - min;
   const toX = (index) => plotStartX + (index / span) * (plotEndX - plotStartX);
@@ -399,8 +410,8 @@ function renderSparkline(points, min, max, minLabel, maxLabel) {
 
   return `
     <svg class="mini-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
-      <text class="chart-scale-label max" x="${(leftLabelWidth - 2).toFixed(2)}" y="${topLineY.toFixed(2)}" text-anchor="end" dominant-baseline="middle">${esc(maxLabel)}</text>
-      <text class="chart-scale-label min" x="${(leftLabelWidth - 2).toFixed(2)}" y="${bottomLineY.toFixed(2)}" text-anchor="end" dominant-baseline="middle">${esc(minLabel)}</text>
+      <text class="chart-scale-label max" x="${labelX.toFixed(2)}" y="${topLineY.toFixed(2)}" text-anchor="start" dominant-baseline="middle">${esc(maxLabel)}</text>
+      <text class="chart-scale-label min" x="${labelX.toFixed(2)}" y="${bottomLineY.toFixed(2)}" text-anchor="start" dominant-baseline="middle">${esc(minLabel)}</text>
       <line class="chart-grid" x1="${plotStartX.toFixed(2)}" y1="${topLineY.toFixed(2)}" x2="${plotEndX.toFixed(2)}" y2="${topLineY.toFixed(2)}"></line>
       <line class="chart-grid" x1="${plotStartX.toFixed(2)}" y1="${bottomLineY.toFixed(2)}" x2="${plotEndX.toFixed(2)}" y2="${bottomLineY.toFixed(2)}"></line>
       <path class="chart-line" d="${path}"></path>
@@ -411,12 +422,13 @@ function renderSparkline(points, min, max, minLabel, maxLabel) {
 function renderBars(points, min, max, minLabel, maxLabel) {
   const width = 360;
   const height = 64;
-  const leftLabelWidth = 44;
-  const rightPad = 6;
-  const topLineY = 8;
-  const bottomLineY = height - 8;
-  const plotStartX = leftLabelWidth + 2;
-  const plotEndX = width - rightPad;
+  const {
+    labelX,
+    topLineY,
+    bottomLineY,
+    plotStartX,
+    plotEndX
+  } = chartAxisLayout(width, height, maxLabel, minLabel);
   const range = max - min;
   const innerWidth = plotEndX - plotStartX;
   const barSpace = innerWidth / points.length;
@@ -434,8 +446,8 @@ function renderBars(points, min, max, minLabel, maxLabel) {
 
   return `
     <svg class="mini-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
-      <text class="chart-scale-label max" x="${(leftLabelWidth - 2).toFixed(2)}" y="${topLineY.toFixed(2)}" text-anchor="end" dominant-baseline="middle">${esc(maxLabel)}</text>
-      <text class="chart-scale-label min" x="${(leftLabelWidth - 2).toFixed(2)}" y="${bottomLineY.toFixed(2)}" text-anchor="end" dominant-baseline="middle">${esc(minLabel)}</text>
+      <text class="chart-scale-label max" x="${labelX.toFixed(2)}" y="${topLineY.toFixed(2)}" text-anchor="start" dominant-baseline="middle">${esc(maxLabel)}</text>
+      <text class="chart-scale-label min" x="${labelX.toFixed(2)}" y="${bottomLineY.toFixed(2)}" text-anchor="start" dominant-baseline="middle">${esc(minLabel)}</text>
       <line class="chart-grid" x1="${plotStartX.toFixed(2)}" y1="${topLineY.toFixed(2)}" x2="${plotEndX.toFixed(2)}" y2="${topLineY.toFixed(2)}"></line>
       <line class="chart-grid" x1="${plotStartX.toFixed(2)}" y1="${bottomLineY.toFixed(2)}" x2="${plotEndX.toFixed(2)}" y2="${bottomLineY.toFixed(2)}"></line>
       ${bars}
@@ -528,20 +540,17 @@ function pulseRefresh() {
   // Animations removed by design.
 }
 
-function scheduleNextLoad(ttlSeconds) {
+function scheduleNextLoad() {
   clearTimeout(loadTimer);
-  const safeTtl = clamp(ttlSeconds, 5, 600, 30);
-  loadTimer = setTimeout(load, safeTtl * 1000);
+  loadTimer = setTimeout(load, 60000);
 }
 
 async function load() {
-  let ttlSeconds = 30;
   try {
     const response = await fetch('./data/dashboard.json', { cache: 'no-store' });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const data = await response.json();
-    ttlSeconds = asNumber(data.ttl_seconds, 30);
 
     const ui = resolveUi(data.ui);
     applyFrameUi(ui);
@@ -559,7 +568,7 @@ async function load() {
     ]);
     sectionsEl.innerHTML = '';
   } finally {
-    scheduleNextLoad(ttlSeconds);
+    scheduleNextLoad();
   }
 }
 

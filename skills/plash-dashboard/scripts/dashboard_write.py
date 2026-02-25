@@ -11,17 +11,19 @@ from typing import Callable, List, Optional
 DATA_PATH = Path("/var/lib/openclaw/plash-data/dashboard.json")
 
 ALLOWED_ALERT_SEVERITY = {"info", "warning", "critical"}
-ALLOWED_MOTION = {"none", "subtle"}
 ALLOWED_CHART_KIND = {"sparkline", "bars"}
 
 TARGET_VIEWPORT_HEIGHT = int(os.getenv("PLASH_TARGET_VIEWPORT_HEIGHT", "1080"))
 LAYOUT_SAFETY_MARGIN = max(0, int(os.getenv("PLASH_LAYOUT_SAFETY_MARGIN", "24")))
+LAYOUT_OVERFLOW_TOLERANCE = max(0, int(os.getenv("PLASH_LAYOUT_OVERFLOW_TOLERANCE", "40")))
 WALLPAPER_GAP = 14
 SECTION_GRID_GAP = 14
 CARD_GRID_GAP = 10
 ALERT_HEIGHT = 52
 SECTION_CHROME_HEIGHT = 46
 GRID_COLUMNS = 12
+FRAME_GUTTER_TOP = 96
+FRAME_GUTTER_BOTTOM = 106
 
 
 def now_iso() -> str:
@@ -35,15 +37,6 @@ def fail(msg: str) -> None:
 def validate_non_empty_string(value: object, path: str) -> None:
     if not isinstance(value, str) or not value.strip():
         fail(f"{path} must be a non-empty string")
-
-
-def validate_int(value: object, path: str, minimum: Optional[int] = None, maximum: Optional[int] = None) -> None:
-    if not isinstance(value, int):
-        fail(f"{path} must be an integer")
-    if minimum is not None and value < minimum:
-        fail(f"{path} must be >= {minimum}")
-    if maximum is not None and value > maximum:
-        fail(f"{path} must be <= {maximum}")
 
 
 def validate_number(value: object, path: str) -> None:
@@ -98,31 +91,15 @@ def validate_ui(payload: dict) -> None:
     if not isinstance(ui, dict):
         fail("ui must be an object")
 
-    for key in ("timezone", "motion", "gutters"):
+    for key in ("timezone",):
         if key not in ui:
             fail(f"ui missing key: {key}")
 
     validate_non_empty_string(ui["timezone"], "ui.timezone")
 
-    if ui["motion"] not in ALLOWED_MOTION:
-        fail(f"ui.motion invalid: {ui['motion']}")
-
-    gutters = ui["gutters"]
-    if not isinstance(gutters, dict):
-        fail("ui.gutters must be an object")
-
-    for key in ("top", "bottom", "side"):
-        if key not in gutters:
-            fail(f"ui.gutters missing key: {key}")
-        validate_int(gutters[key], f"ui.gutters.{key}", minimum=0)
-
     for key in ui:
-        if key not in {"timezone", "motion", "gutters"}:
+        if key not in {"timezone"}:
             fail(f"ui.{key} is not supported")
-
-    for key in gutters:
-        if key not in {"top", "bottom", "side"}:
-            fail(f"ui.gutters.{key} is not supported")
 
 
 def validate_card(card: dict, path: str) -> None:
@@ -417,22 +394,17 @@ def drop_candidate_ids(payload: dict, limit: int = 8) -> List[str]:
 
 
 def validate_layout_budget(payload: dict) -> None:
-    ui = payload.get("ui", {}) if isinstance(payload.get("ui"), dict) else {}
-    gutters = ui.get("gutters", {}) if isinstance(ui.get("gutters"), dict) else {}
-
-    top = int(as_number(gutters.get("top"), 72))
-    bottom = int(as_number(gutters.get("bottom"), 106))
-    available = max(0, TARGET_VIEWPORT_HEIGHT - top - bottom - LAYOUT_SAFETY_MARGIN)
+    available = max(0, TARGET_VIEWPORT_HEIGHT - FRAME_GUTTER_TOP - FRAME_GUTTER_BOTTOM - LAYOUT_SAFETY_MARGIN)
     required = estimate_layout_height(payload)
 
-    if required <= available:
+    if required <= available + LAYOUT_OVERFLOW_TOLERANCE:
         return
 
     overflow = required - available
     candidates = drop_candidate_ids(payload)
     candidate_text = ", ".join(candidates) if candidates else "(none)"
     fail(
-        f"layout budget exceeded by {overflow}px (required={required}px, available={available}px, safety={LAYOUT_SAFETY_MARGIN}px). "
+        f"layout budget exceeded by {overflow}px (required={required}px, available={available}px, safety={LAYOUT_SAFETY_MARGIN}px, tolerance={LAYOUT_OVERFLOW_TOLERANCE}px). "
         f"Reduce card volume or shorten card content. Suggested drop candidates: {candidate_text}"
     )
 
@@ -441,22 +413,21 @@ def validate(payload: dict) -> None:
     if not isinstance(payload, dict):
         fail("root must be an object")
 
-    for key in ("version", "generated_at", "title", "ui", "sections"):
+    for key in ("title", "ui", "sections"):
         if key not in payload:
             fail(f"missing required key: {key}")
 
-    version = payload["version"]
-    if not isinstance(version, str) or not version.startswith("3."):
-        fail('version must be a string starting with "3."')
+    if "version" in payload:
+        version = payload["version"]
+        if not isinstance(version, str) or not version.startswith("3."):
+            fail('version must be a string starting with "3."')
 
-    if not isinstance(payload["generated_at"], str):
+    if "generated_at" in payload and not isinstance(payload["generated_at"], str):
         fail("generated_at must be a string")
 
     validate_non_empty_string(payload["title"], "title")
     if "summary" in payload and not isinstance(payload["summary"], str):
         fail("summary must be a string")
-    if "ttl_seconds" in payload:
-        validate_int(payload["ttl_seconds"], "ttl_seconds", minimum=5)
 
     validate_ui(payload)
 
@@ -513,7 +484,7 @@ def validate(payload: dict) -> None:
                 fail(f"{path}.{key} is not supported")
 
     for key in payload:
-        if key not in {"version", "generated_at", "ttl_seconds", "title", "summary", "ui", "sections", "alerts"}:
+        if key not in {"version", "generated_at", "title", "summary", "ui", "sections", "alerts"}:
             fail(f"{key} is not supported")
 
     validate_layout_budget(payload)
@@ -533,18 +504,12 @@ def atomic_write(path: Path, payload: dict) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate and atomically replace dashboard.json")
     parser.add_argument("--input", required=True, help="Path to next dashboard JSON")
-    parser.add_argument(
-        "--touch-generated-at",
-        action="store_true",
-        help="Set generated_at to current UTC time",
-    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
     payload = json.loads(input_path.read_text(encoding="utf-8"))
-
-    if args.touch_generated_at:
-        payload["generated_at"] = now_iso()
+    payload["version"] = "3.0"
+    payload["generated_at"] = now_iso()
 
     validate(payload)
     atomic_write(DATA_PATH, payload)

@@ -1,17 +1,8 @@
 {
-  "version": "3.0",
-  "generated_at": "2026-02-24T20:12:00Z",
-  "ttl_seconds": 90,
   "title": "Sebastien Surface",
   "summary": "High-contrast monochrome wallboard.",
   "ui": {
-    "timezone": "Europe/Berlin",
-    "motion": "subtle",
-    "gutters": {
-      "top": 72,
-      "bottom": 106,
-      "side": 28
-    }
+    "timezone": "Europe/Berlin"
   },
   "sections": [
     {

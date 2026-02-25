@@ -51,3 +51,30 @@ jobs:
           set -euo pipefail
           PORT="${PROD_SSH_PORT:-22}"
           ssh -p "$PORT" "${PROD_SSH_USER}@${PROD_SSH_HOST}" "bash /srv/home-stack/plash-dashboard/scripts/deploy-on-hs.sh"
+
+      - name: Smoke check deployed bundle
+        env:
+          PROD_SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
+          PROD_SSH_PORT: ${{ secrets.PROD_SSH_PORT }}
+          PROD_SSH_USER: ${{ secrets.PROD_SSH_USER }}
+        run: |
+          set -euo pipefail
+          PORT="${PROD_SSH_PORT:-22}"
+          ssh -p "$PORT" "${PROD_SSH_USER}@${PROD_SSH_HOST}" '
+            set -euo pipefail
+            dashboard_url="https://homeserver.tailac3bda.ts.net:8444/app.js"
+            js="$(curl -fsS "$dashboard_url")"
+            printf "%s" "$js" | grep -q "function chartAxisLayout("
+            printf "%s" "$js" | grep -q "function scheduleNextLoad()"
+            printf "%s" "$js" | grep -q "setTimeout(load, 60000)"
+            if printf "%s" "$js" | grep -q "latestLabel"; then
+              echo "unexpected latestLabel marker in app.js" >&2
+              exit 1
+            fi
+            if printf "%s" "$js" | grep -q "deltaLabel"; then
+              echo "unexpected deltaLabel marker in app.js" >&2
+              exit 1
+            fi
+            headers="$(curl -fsSI "$dashboard_url")"
+            printf "%s\n" "$headers" | grep -qi "^Cache-Control: no-store"
+          '

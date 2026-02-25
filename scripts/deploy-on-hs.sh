@@ -43,6 +43,16 @@ if [ -d "${SKILL_SRC}" ]; then
 fi
 
 docker compose up -d
+
+# Ensure nginx picks up mounted config changes (headers/routes/cache directives).
+if docker ps --format '{{.Names}}' | grep -qx 'plash-web'; then
+  if docker exec plash-web nginx -t >/dev/null 2>&1; then
+    docker exec plash-web nginx -s reload >/dev/null 2>&1 || docker restart plash-web >/dev/null
+  else
+    docker restart plash-web >/dev/null
+  fi
+fi
+
 tailscale serve --bg --yes --https=8444 18888
 
 if systemctl is-enabled openclaw-gateway.service >/dev/null 2>&1; then
