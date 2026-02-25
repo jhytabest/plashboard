@@ -232,7 +232,7 @@ def balance_rows(items: List[dict], span_for: Callable[[dict], int]) -> List[Lis
             row = []
             used = 0
 
-        next_span = max(1, min(12, preferred_span, 12 - used if used < 12 else 12))
+        next_span = max(1, min(12, preferred_span, 12 - used))
         row.append({"item": item, "span": next_span})
         used += next_span
 
@@ -308,20 +308,27 @@ def estimate_layout_height(payload: dict) -> int:
     alerts_height = ALERT_HEIGHT if visible_alerts else 0
 
     sections = payload.get("sections", []) if isinstance(payload.get("sections"), list) else []
-    visible_sections = []
+    visible_sections_with_heights = []
     for section in sections:
         if not isinstance(section, dict):
             continue
         if section.get("hidden"):
             continue
-        if estimate_section_height(section) <= 0:
+        section_height = estimate_section_height(section)
+        if section_height <= 0:
             continue
-        visible_sections.append(section)
+        visible_sections_with_heights.append((section, section_height))
+
+    if not visible_sections_with_heights:
+        return alerts_height
+
+    visible_sections = [section for section, _ in visible_sections_with_heights]
+    section_height_map = {id(section): height for section, height in visible_sections_with_heights}
 
     section_rows = balance_rows(visible_sections, section_span)
     section_row_heights = []
     for row in section_rows:
-        row_height = max(estimate_section_height(entry["item"]) for entry in row)
+        row_height = max(section_height_map[id(entry["item"])] for entry in row)
         section_row_heights.append(row_height)
 
     sections_height = sum(section_row_heights) + SECTION_GRID_GAP * max(0, len(section_row_heights) - 1)

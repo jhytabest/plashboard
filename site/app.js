@@ -164,7 +164,7 @@ function balanceGridLayout(items, spanFromItem) {
       used = 0;
     }
 
-    const nextSpan = Math.max(1, Math.min(12, preferredSpan, 12 - used || 12));
+    const nextSpan = Math.max(1, Math.min(12, preferredSpan, 12 - used));
     row.push({ item, span: nextSpan });
     used += nextSpan;
 
