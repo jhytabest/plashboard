@@ -28,12 +28,17 @@ Use this skill for content changes to the private Plash dashboard.
 - Only modify dashboard content JSON. Do not edit Docker, Tailscale, systemd, or network config.
 - Keep `version` in `3.x`.
 - Keep stable IDs for sections/cards/alerts when updating existing items.
-- Use UTC ISO timestamps (e.g. `2026-02-24T14:20:00Z`).
+- Do not include per-card or per-alert `updated_at`.
+- Do not include card `status` or `tags`.
+- The writer enforces a viewport fit budget. If validation fails with `layout budget exceeded`, revise content and retry.
+- Retry order on layout failure:
+  1) Hide lowest-priority cards (`layout.priority`/`priority` high number = lower priority).
+  2) Shorten long descriptions and large metric lists.
+  3) Keep alerts unlimited in JSON (alerts rotate in UI), but keep section card volume within fit budget.
 
 ## Contract Notes (v3)
 - `ui` is required:
   - `timezone`: IANA zone (default `Europe/Berlin`)
-  - `density`: `sparse|compact`
   - `motion`: `none|subtle`
   - `gutters`: `{ top, bottom, side }` in pixels
 - Optional chart support on cards via `chart`:
@@ -43,3 +48,5 @@ Use this skill for content changes to the private Plash dashboard.
 - Layout control is direct only (no variants):
   - sections: `hidden`, `order`, `layout`
   - cards: `hidden`, `priority`, `layout`
+- Cards require: `id`, `type`, `title`
+- Alerts require: `id`, `severity`, `message`

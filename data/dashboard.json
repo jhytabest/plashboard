@@ -6,7 +6,6 @@
   "summary": "High-contrast monochrome wallboard.",
   "ui": {
     "timezone": "Europe/Berlin",
-    "density": "sparse",
     "motion": "subtle",
     "gutters": {
       "top": 56,
@@ -27,7 +26,6 @@
           "id": "today",
           "type": "snapshot",
           "title": "Today",
-          "status": "healthy",
           "description": "Two deep-work blocks, one admin block.",
           "priority": 10,
           "layout": {
@@ -36,14 +34,12 @@
           "metrics": [
             { "key": "focus_blocks", "value": 2 },
             { "key": "buffer_minutes", "value": 45 }
-          ],
-          "updated_at": "2026-02-24T20:12:00Z"
+          ]
         },
         {
           "id": "tasks",
           "type": "tasks",
           "title": "Tasks",
-          "status": "warning",
           "description": "One overdue item remains.",
           "layout": {
             "span": 6
@@ -51,20 +47,16 @@
           "metrics": [
             { "key": "inbox", "value": 7 },
             { "key": "overdue", "value": 1 }
-          ],
-          "updated_at": "2026-02-24T20:12:00Z"
+          ]
         },
         {
           "id": "calendar",
           "type": "calendar",
           "title": "Calendar",
-          "status": "healthy",
           "description": "No meetings before 13:00.",
           "layout": {
             "span": 6
-          },
-          "tags": ["calendar", "work"],
-          "updated_at": "2026-02-24T20:12:00Z"
+          }
         }
       ]
     },
@@ -80,7 +72,6 @@
           "id": "openclaw",
           "type": "service",
           "title": "OpenClaw Gateway",
-          "status": "healthy",
           "description": "Automation gateway serving dashboard payload.",
           "url": "https://homeserver.tailac3bda.ts.net",
           "layout": {
@@ -89,14 +80,12 @@
           "metrics": [
             { "key": "jobs_running", "value": 2 },
             { "key": "queue", "value": 3 }
-          ],
-          "updated_at": "2026-02-24T20:12:00Z"
+          ]
         },
         {
           "id": "latency",
           "type": "graph",
           "title": "Gateway Latency",
-          "status": "healthy",
           "description": "Last 12 refresh intervals.",
           "layout": {
             "span": 12
@@ -119,8 +108,7 @@
               63,
               62
             ]
-          },
-          "updated_at": "2026-02-24T20:12:00Z"
+          }
         }
       ]
     },
@@ -136,7 +124,6 @@
           "id": "automation-hourly",
           "type": "graph",
           "title": "Automations / hour",
-          "status": "healthy",
           "description": "Execution volume in the last 10 hours.",
           "layout": {
             "span": 12
@@ -146,8 +133,7 @@
             "label": "runs",
             "unit": "",
             "points": [1, 2, 2, 3, 3, 4, 3, 5, 4, 4]
-          },
-          "updated_at": "2026-02-24T20:12:00Z"
+          }
         }
       ]
     }
@@ -156,8 +142,7 @@
     {
       "id": "queue-slow",
       "severity": "warning",
-      "message": "Automation queue above baseline.",
-      "updated_at": "2026-02-24T20:12:00Z"
+      "message": "Automation queue above baseline."
     }
   ]
 }

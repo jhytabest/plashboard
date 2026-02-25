@@ -5,15 +5,20 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Callable, List, Optional
 
 DATA_PATH = Path("/var/lib/openclaw/plash-data/dashboard.json")
 
-ALLOWED_CARD_STATUS = {"healthy", "warning", "critical", "unknown"}
 ALLOWED_ALERT_SEVERITY = {"info", "warning", "critical"}
-ALLOWED_DENSITY = {"sparse", "compact"}
 ALLOWED_MOTION = {"none", "subtle"}
 ALLOWED_CHART_KIND = {"sparkline", "bars"}
+
+TARGET_VIEWPORT_HEIGHT = 1080
+WALLPAPER_GAP = 14
+SECTION_GRID_GAP = 14
+CARD_GRID_GAP = 10
+ALERT_HEIGHT = 52
+SECTION_CHROME_HEIGHT = 46
 
 
 def now_iso() -> str:
@@ -41,6 +46,19 @@ def validate_int(value: object, path: str, minimum: Optional[int] = None, maximu
 def validate_number(value: object, path: str) -> None:
     if not isinstance(value, (int, float)):
         fail(f"{path} must be a number")
+
+
+def as_number(value: object, fallback: float) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def clamp(value: float, minimum: float, maximum: float) -> float:
+    return min(maximum, max(minimum, value))
 
 
 def validate_layout(value: object, path: str) -> None:
@@ -96,14 +114,11 @@ def validate_ui(payload: dict) -> None:
     if not isinstance(ui, dict):
         fail("ui must be an object")
 
-    for key in ("timezone", "density", "motion", "gutters"):
+    for key in ("timezone", "motion", "gutters"):
         if key not in ui:
             fail(f"ui missing key: {key}")
 
     validate_non_empty_string(ui["timezone"], "ui.timezone")
-
-    if ui["density"] not in ALLOWED_DENSITY:
-        fail(f"ui.density invalid: {ui['density']}")
 
     if ui["motion"] not in ALLOWED_MOTION:
         fail(f"ui.motion invalid: {ui['motion']}")
@@ -118,7 +133,7 @@ def validate_ui(payload: dict) -> None:
         validate_int(gutters[key], f"ui.gutters.{key}", minimum=0)
 
     for key in ui:
-        if key not in {"timezone", "density", "motion", "gutters"}:
+        if key not in {"timezone", "motion", "gutters"}:
             fail(f"ui.{key} is not supported")
 
     for key in gutters:
@@ -127,7 +142,7 @@ def validate_ui(payload: dict) -> None:
 
 
 def validate_card(card: dict, path: str) -> None:
-    for key in ("id", "type", "title", "status"):
+    for key in ("id", "type", "title"):
         if key not in card:
             fail(f"{path} missing key: {key}")
 
@@ -135,9 +150,6 @@ def validate_card(card: dict, path: str) -> None:
     validate_non_empty_string(card["title"], f"{path}.title")
     if not isinstance(card["type"], str):
         fail(f"{path}.type must be a string")
-
-    if card["status"] not in ALLOWED_CARD_STATUS:
-        fail(f"{path}.status invalid: {card['status']}")
 
     if "url" in card and not isinstance(card["url"], str):
         fail(f"{path}.url must be a string")
@@ -151,13 +163,6 @@ def validate_card(card: dict, path: str) -> None:
         validate_layout(card["layout"], f"{path}.layout")
     if "chart" in card:
         validate_chart(card["chart"], f"{path}.chart")
-
-    tags = card.get("tags", [])
-    if not isinstance(tags, list):
-        fail(f"{path}.tags must be a list")
-    for i, tag in enumerate(tags):
-        if not isinstance(tag, str):
-            fail(f"{path}.tags[{i}] must be a string")
 
     metrics = card.get("metrics", [])
     if not isinstance(metrics, list):
@@ -175,27 +180,191 @@ def validate_card(card: dict, path: str) -> None:
             if key not in {"key", "value"}:
                 fail(f"{metric_path}.{key} is not supported")
 
-    if "updated_at" in card and not isinstance(card["updated_at"], str):
-        fail(f"{path}.updated_at must be a string")
-
     allowed_card_fields = {
         "id",
         "type",
         "title",
-        "status",
         "url",
         "description",
         "hidden",
         "priority",
         "layout",
-        "tags",
         "metrics",
         "chart",
-        "updated_at",
     }
     for key in card:
         if key not in allowed_card_fields:
             fail(f"{path}.{key} is not supported")
+
+
+def card_priority(card: dict) -> int:
+    layout = card.get("layout") if isinstance(card.get("layout"), dict) else {}
+    from_layout = layout.get("priority")
+    if isinstance(from_layout, int):
+        return from_layout
+    from_card = card.get("priority")
+    if isinstance(from_card, int):
+        return from_card
+    return 100
+
+
+def section_span(section: dict) -> int:
+    layout = section.get("layout") if isinstance(section.get("layout"), dict) else {}
+    configured = as_number(layout.get("span"), 4)
+    return int(clamp(configured, 3, 12))
+
+
+def card_span(card: dict) -> int:
+    layout = card.get("layout") if isinstance(card.get("layout"), dict) else {}
+    configured = as_number(layout.get("span"), 6)
+    return int(clamp(configured, 3, 12))
+
+
+def balance_rows(items: List[dict], span_for: Callable[[dict], int]) -> List[List[dict]]:
+    rows: List[List[dict]] = []
+    row: List[dict] = []
+    used = 0
+
+    for item in items:
+        preferred_span = span_for(item)
+        if row and used + preferred_span > 12:
+            rows.append(row)
+            row = []
+            used = 0
+
+        next_span = max(1, min(12, preferred_span, 12 - used if used < 12 else 12))
+        row.append({"item": item, "span": next_span})
+        used += next_span
+
+        if used == 12:
+            rows.append(row)
+            row = []
+            used = 0
+
+    if row:
+        rows.append(row)
+
+    for next_row in rows:
+        used_cols = sum(entry["span"] for entry in next_row)
+        leftover = 12 - used_cols
+        if leftover <= 0:
+            continue
+        if len(next_row) == 1:
+            next_row[0]["span"] += leftover
+            continue
+        next_row[-1]["span"] += leftover
+
+    return rows
+
+
+def estimate_card_height(card: dict) -> int:
+    base = 104
+    if card.get("description"):
+        base += 14
+    if card.get("chart"):
+        base += 92
+    if card.get("type") or card.get("url"):
+        base += 12
+
+    metrics = card.get("metrics") if isinstance(card.get("metrics"), list) else []
+    metric_rows = min(len(metrics), 6)
+    base += metric_rows * 13
+
+    return int(clamp(base, 96, 260))
+
+
+def visible_cards(section: dict) -> List[dict]:
+    raw_cards = section.get("cards", [])
+    if not isinstance(raw_cards, list):
+        return []
+
+    cards = [
+        card
+        for card in raw_cards
+        if isinstance(card, dict) and not card.get("hidden") and isinstance(card.get("title"), str) and card.get("title")
+    ]
+    cards.sort(key=card_priority)
+    return cards
+
+
+def estimate_section_height(section: dict) -> int:
+    cards = visible_cards(section)
+    if not cards:
+        return 0
+
+    card_rows = balance_rows(cards, card_span)
+    row_heights = []
+    for row in card_rows:
+        row_height = max(estimate_card_height(entry["item"]) for entry in row)
+        row_heights.append(row_height)
+
+    cards_height = sum(row_heights) + CARD_GRID_GAP * max(0, len(row_heights) - 1)
+    return SECTION_CHROME_HEIGHT + cards_height
+
+
+def estimate_layout_height(payload: dict) -> int:
+    alerts = payload.get("alerts", []) if isinstance(payload.get("alerts"), list) else []
+    visible_alerts = [alert for alert in alerts if isinstance(alert, dict) and alert.get("message")]
+    alerts_height = ALERT_HEIGHT if visible_alerts else 0
+
+    sections = payload.get("sections", []) if isinstance(payload.get("sections"), list) else []
+    visible_sections = []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        if section.get("hidden"):
+            continue
+        if estimate_section_height(section) <= 0:
+            continue
+        visible_sections.append(section)
+
+    section_rows = balance_rows(visible_sections, section_span)
+    section_row_heights = []
+    for row in section_rows:
+        row_height = max(estimate_section_height(entry["item"]) for entry in row)
+        section_row_heights.append(row_height)
+
+    sections_height = sum(section_row_heights) + SECTION_GRID_GAP * max(0, len(section_row_heights) - 1)
+    between = WALLPAPER_GAP if alerts_height and sections_height else 0
+    return alerts_height + between + sections_height
+
+
+def drop_candidate_ids(payload: dict, limit: int = 8) -> List[str]:
+    candidates = []
+    sections = payload.get("sections", []) if isinstance(payload.get("sections"), list) else []
+
+    for section in sections:
+        if not isinstance(section, dict) or section.get("hidden"):
+            continue
+        for card in visible_cards(section):
+            card_id = card.get("id")
+            if not isinstance(card_id, str) or not card_id:
+                continue
+            candidates.append((card_priority(card), card_id))
+
+    candidates.sort(key=lambda entry: (entry[0], entry[1]), reverse=True)
+    return [entry[1] for entry in candidates[:limit]]
+
+
+def validate_layout_budget(payload: dict) -> None:
+    ui = payload.get("ui", {}) if isinstance(payload.get("ui"), dict) else {}
+    gutters = ui.get("gutters", {}) if isinstance(ui.get("gutters"), dict) else {}
+
+    top = int(as_number(gutters.get("top"), 56))
+    bottom = int(as_number(gutters.get("bottom"), 106))
+    available = TARGET_VIEWPORT_HEIGHT - top - bottom
+    required = estimate_layout_height(payload)
+
+    if required <= available:
+        return
+
+    overflow = required - available
+    candidates = drop_candidate_ids(payload)
+    candidate_text = ", ".join(candidates) if candidates else "(none)"
+    fail(
+        f"layout budget exceeded by {overflow}px (required={required}px, available={available}px). "
+        f"Reduce visible cards or shorten card content. Suggested hide order: {candidate_text}"
+    )
 
 
 def validate(payload: dict) -> None:
@@ -275,16 +444,16 @@ def validate(payload: dict) -> None:
 
         if alert["severity"] not in ALLOWED_ALERT_SEVERITY:
             fail(f"{path}.severity invalid: {alert['severity']}")
-        if "updated_at" in alert and not isinstance(alert["updated_at"], str):
-            fail(f"{path}.updated_at must be a string")
 
         for key in alert:
-            if key not in {"id", "severity", "message", "updated_at"}:
+            if key not in {"id", "severity", "message"}:
                 fail(f"{path}.{key} is not supported")
 
     for key in payload:
         if key not in {"version", "generated_at", "ttl_seconds", "title", "summary", "ui", "sections", "alerts"}:
             fail(f"{key} is not supported")
+
+    validate_layout_budget(payload)
 
 
 def atomic_write(path: Path, payload: dict) -> None:

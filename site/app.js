@@ -2,11 +2,9 @@ const wallpaperEl = document.getElementById('wallpaper');
 const alertsEl = document.getElementById('alerts');
 const sectionsEl = document.getElementById('sections');
 
-const VALID_DENSITY = new Set(['sparse', 'compact']);
 const VALID_MOTION = new Set(['none', 'subtle']);
 const DEFAULT_UI = {
   timezone: 'Europe/Berlin',
-  density: 'sparse',
   motion: 'subtle',
   gutters: {
     top: 56,
@@ -17,6 +15,8 @@ const DEFAULT_UI = {
 
 let currentUi = { ...DEFAULT_UI, gutters: { ...DEFAULT_UI.gutters } };
 let loadTimer = null;
+let alertRotateTimer = null;
+let alertRotateIndex = 0;
 
 function esc(value) {
   return String(value ?? '')
@@ -56,7 +56,6 @@ function resolveUi(rawUi) {
   const gutters = asObject(ui.gutters);
   return {
     timezone: isValidTimezone(ui.timezone) ? ui.timezone : DEFAULT_UI.timezone,
-    density: VALID_DENSITY.has(ui.density) ? ui.density : DEFAULT_UI.density,
     motion: VALID_MOTION.has(ui.motion) ? ui.motion : DEFAULT_UI.motion,
     gutters: {
       top: clamp(gutters.top, 20, 180, DEFAULT_UI.gutters.top),
@@ -69,42 +68,9 @@ function resolveUi(rawUi) {
 function applyFrameUi(ui) {
   const root = document.documentElement.style;
   currentUi = ui;
-  wallpaperEl.dataset.density = ui.density;
   root.setProperty('--gutter-top', `${ui.gutters.top}px`);
   root.setProperty('--gutter-bottom', `${ui.gutters.bottom}px`);
   root.setProperty('--gutter-side', `${ui.gutters.side}px`);
-}
-
-function formatDate(value, timezone, withTime = true) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
-
-  const options = withTime
-    ? {
-        timeZone: timezone,
-        weekday: 'short',
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hourCycle: 'h23',
-        timeZoneName: 'short'
-      }
-    : {
-        timeZone: timezone,
-        weekday: 'short',
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric'
-      };
-
-  return new Intl.DateTimeFormat('en-GB', options).format(date);
-}
-
-function normalizeStatus(status) {
-  return ['healthy', 'warning', 'critical'].includes(status) ? status : 'unknown';
 }
 
 function sectionSpanFor(section) {
@@ -136,25 +102,109 @@ function sourceFromUrl(url) {
   }
 }
 
+function clearAlertRotation() {
+  if (!alertRotateTimer) return;
+  clearInterval(alertRotateTimer);
+  alertRotateTimer = null;
+}
+
+function renderAlertFrame(alert, count, index) {
+  const severity = ['warning', 'critical'].includes(alert.severity) ? alert.severity : 'info';
+  const position = count > 1 ? ` | ${index + 1}/${count}` : '';
+  const animateClass = currentUi.motion === 'subtle' ? 'is-entering' : '';
+
+  return `
+    <article class="alert-item ${esc(severity)} ${animateClass}">
+      <p class="alert-message">${esc(alert.message || 'Alert')}</p>
+      <p class="alert-meta">${esc(severity)}${esc(position)}</p>
+    </article>
+  `;
+}
+
 function renderAlerts(alerts = []) {
-  if (!alerts.length) {
+  clearAlertRotation();
+
+  const normalizedAlerts = alerts
+    .map((entry) => asObject(entry))
+    .filter((entry) => entry.message);
+
+  if (!normalizedAlerts.length) {
     alertsEl.innerHTML = '';
+    alertRotateIndex = 0;
     return;
   }
 
-  alertsEl.innerHTML = alerts
-    .map((entry) => {
-      const alert = asObject(entry);
-      const severity = ['warning', 'critical'].includes(alert.severity) ? alert.severity : 'info';
-      const when = formatDate(alert.updated_at, currentUi.timezone);
-      return `
-        <article class="alert-item ${esc(severity)}">
-          <p class="alert-message">${esc(alert.message || 'Alert')}</p>
-          <p class="alert-meta">${esc(severity)} | ${esc(when)}</p>
-        </article>
-      `;
-    })
-    .join('');
+  const renderAt = (index) => {
+    const nextIndex = index % normalizedAlerts.length;
+    alertsEl.innerHTML = renderAlertFrame(normalizedAlerts[nextIndex], normalizedAlerts.length, nextIndex);
+    alertRotateIndex = nextIndex;
+  };
+
+  renderAt(alertRotateIndex);
+
+  if (normalizedAlerts.length <= 1) return;
+
+  const rotateEveryMs = 5000;
+  alertRotateTimer = setInterval(() => {
+    renderAt(alertRotateIndex + 1);
+  }, rotateEveryMs);
+}
+
+function balanceGridLayout(items, spanFromItem) {
+  const rows = [];
+  let row = [];
+  let used = 0;
+
+  items.forEach((item) => {
+    const preferredSpan = spanFromItem(item);
+
+    if (row.length && used + preferredSpan > 12) {
+      rows.push(row);
+      row = [];
+      used = 0;
+    }
+
+    const nextSpan = Math.max(1, Math.min(12, preferredSpan, 12 - used || 12));
+    row.push({ item, span: nextSpan });
+    used += nextSpan;
+
+    if (used === 12) {
+      rows.push(row);
+      row = [];
+      used = 0;
+    }
+  });
+
+  if (row.length) {
+    rows.push(row);
+  }
+
+  rows.forEach((nextRow) => {
+    const usedCols = nextRow.reduce((sum, entry) => sum + entry.span, 0);
+    const leftover = 12 - usedCols;
+    if (leftover <= 0) return;
+    if (nextRow.length === 1) {
+      nextRow[0].span += leftover;
+      return;
+    }
+    nextRow[nextRow.length - 1].span += leftover;
+  });
+
+  return rows.flat();
+}
+
+function balanceSectionLayout(sections) {
+  return balanceGridLayout(sections, sectionSpanFor).map((entry) => ({
+    ...entry.item,
+    _computedSpan: entry.span
+  }));
+}
+
+function balanceCardLayout(cards) {
+  return balanceGridLayout(cards, cardSpanFor).map((entry) => ({
+    ...entry.item,
+    _computedSpan: entry.span
+  }));
 }
 
 function renderMetrics(metrics = []) {
@@ -269,79 +319,23 @@ function renderChart(chartRaw) {
 }
 
 function renderCard(card) {
-  const tags = Array.isArray(card.tags) ? card.tags : [];
   const source = sourceFromUrl(card.url);
-  const updatedAt = card.updated_at ? formatDate(card.updated_at, currentUi.timezone, false) : '';
-  const status = normalizeStatus(card.status);
-  const statusClass = `status-${status}`;
   const chartMarkup = renderChart(card.chart);
-  const metaParts = chartMarkup
-    ? [updatedAt].filter(Boolean).map((part) => esc(part)).join(' | ')
-    : [card.type, source, updatedAt].filter(Boolean).map((part) => esc(part)).join(' | ');
+  const metaParts = [card.type, source].filter(Boolean).map((part) => esc(part)).join(' | ');
   const metaMarkup = metaParts ? `<p class="card-meta">${metaParts}</p>` : '';
-  const tagsMarkup = tags.length
-    ? `<p class="tag-chips">${tags.map((tag) => `<span class="tag-chip">${esc(tag)}</span>`).join('')}</p>`
-    : '';
+  const description = card.description ? `<p class="card-copy">${esc(card.description)}</p>` : '';
 
   return `
-    <article class="card-item ${statusClass}" style="--card-span:${cardSpanFor(card)}">
+    <article class="card-item" style="--card-span:${asNumber(card._computedSpan, cardSpanFor(card))}">
       <div class="card-head">
         <h3 class="card-title">${esc(card.title || '')}</h3>
-        <span class="status-pill ${statusClass}">${esc(status)}</span>
       </div>
-      <p class="card-copy">${esc(card.description || '')}</p>
+      ${description}
       ${chartMarkup}
       ${metaMarkup}
-      ${tagsMarkup}
       ${renderMetrics(Array.isArray(card.metrics) ? card.metrics : [])}
     </article>
   `;
-}
-
-function balanceSectionLayout(sections) {
-  const rows = [];
-  let row = [];
-  let used = 0;
-
-  sections.forEach((section) => {
-    const preferredSpan = sectionSpanFor(section);
-
-    if (row.length && used + preferredSpan > 12) {
-      rows.push(row);
-      row = [];
-      used = 0;
-    }
-
-    const nextSpan = Math.max(1, Math.min(12, preferredSpan, 12 - used || 12));
-    row.push({ section, span: nextSpan });
-    used += nextSpan;
-
-    if (used === 12) {
-      rows.push(row);
-      row = [];
-      used = 0;
-    }
-  });
-
-  if (row.length) {
-    rows.push(row);
-  }
-
-  rows.forEach((nextRow) => {
-    const usedCols = nextRow.reduce((sum, item) => sum + item.span, 0);
-    const leftover = 12 - usedCols;
-    if (leftover <= 0) return;
-    if (nextRow.length === 1) {
-      nextRow[0].span += leftover;
-      return;
-    }
-    nextRow[nextRow.length - 1].span += leftover;
-  });
-
-  return rows.flat().map((entry) => ({
-    ...entry.section,
-    _computedSpan: entry.span
-  }));
 }
 
 function renderSections(sections = []) {
@@ -357,7 +351,7 @@ function renderSections(sections = []) {
 
       return {
         ...section,
-        cards
+        cards: balanceCardLayout(cards)
       };
     })
     .filter((section) => section.cards.length)
@@ -405,12 +399,19 @@ async function load() {
     renderSections(Array.isArray(data.sections) ? data.sections : []);
     pulseRefresh();
   } catch (error) {
-    alertsEl.innerHTML =
-      `<article class="alert-item critical"><p class="alert-message">Data unavailable</p><p class="alert-meta">${esc(error.message)} | check /data/dashboard.json</p></article>`;
+    renderAlerts([
+      {
+        id: 'data-unavailable',
+        severity: 'critical',
+        message: `Data unavailable (${error.message})`
+      }
+    ]);
     sectionsEl.innerHTML = '';
   } finally {
     scheduleNextLoad(ttlSeconds);
   }
 }
+
+window.addEventListener('beforeunload', clearAlertRotation);
 
 load();
