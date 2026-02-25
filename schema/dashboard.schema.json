@@ -110,9 +110,7 @@
           "items": { "type": "number" }
         },
         "unit": { "type": "string" },
-        "label": { "type": "string" },
-        "min": { "type": "number" },
-        "max": { "type": "number" }
+        "label": { "type": "string" }
       },
       "additionalProperties": false
     }

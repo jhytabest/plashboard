@@ -44,7 +44,7 @@ Use this skill for content changes to the private Plash dashboard.
 - Optional chart support on cards via `chart`:
   - `kind`: `sparkline|bars`
   - `points`: numeric array (at least 2 values)
-  - optional `label`, `unit`, `min`, `max`
+  - optional `label`, `unit`
 - Layout control is direct only (no variants):
   - sections: `hidden`, `order`, `layout`
   - cards: `hidden`, `priority`, `layout`

@@ -262,6 +262,13 @@ h1 {
   vector-effect: non-scaling-stroke;
 }
 
+.chart-scale-label {
+  fill: rgba(215, 215, 215, 0.9);
+  font-size: 9px;
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+}
+
 .chart-line {
   fill: none;
   stroke: #ffffff;

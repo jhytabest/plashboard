@@ -99,13 +99,9 @@ def validate_chart(value: object, path: str) -> None:
         fail(f"{path}.unit must be a string")
     if "label" in value and not isinstance(value["label"], str):
         fail(f"{path}.label must be a string")
-    if "min" in value:
-        validate_number(value["min"], f"{path}.min")
-    if "max" in value:
-        validate_number(value["max"], f"{path}.max")
 
     for key in value:
-        if key not in {"kind", "points", "unit", "label", "min", "max"}:
+        if key not in {"kind", "points", "unit", "label"}:
             fail(f"{path}.{key} is not supported")
 
 
