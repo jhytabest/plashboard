@@ -207,17 +207,6 @@ function balanceCardLayout(cards) {
   }));
 }
 
-function renderMetrics(metrics = []) {
-  const rows = metrics
-    .map((entry) => asObject(entry))
-    .filter((entry) => entry.key !== undefined && entry.value !== undefined)
-    .map((entry) => `<div class="metric-row"><span>${esc(entry.key)}</span><span>${esc(entry.value)}</span></div>`)
-    .join('');
-
-  if (!rows) return '';
-  return `<div class="metrics">${rows}</div>`;
-}
-
 function normalizeChart(chartRaw) {
   const chart = asObject(chartRaw);
   const points = Array.isArray(chart.points)
@@ -228,28 +217,34 @@ function normalizeChart(chartRaw) {
 
   const minPoint = Math.min(...points);
   const maxPoint = Math.max(...points);
-  const min = Number.isFinite(asNumber(chart.min, NaN)) ? asNumber(chart.min, minPoint) : minPoint;
-  const max = Number.isFinite(asNumber(chart.max, NaN)) ? asNumber(chart.max, maxPoint) : maxPoint;
   const kind = chart.kind === 'bars' ? 'bars' : 'sparkline';
 
   return {
     kind,
     points,
-    min: Math.min(min, minPoint),
-    max: Math.max(max, maxPoint),
+    min: minPoint,
+    max: maxPoint,
     unit: typeof chart.unit === 'string' ? chart.unit : '',
-    label: typeof chart.label === 'string' ? chart.label : 'trend'
+    label: typeof chart.label === 'string' ? chart.label : ''
   };
 }
 
-function renderSparkline(points, min, max) {
+function formatChartScale(value, unit) {
+  const numberFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
+  return `${numberFormat.format(value)}${unit}`;
+}
+
+function renderSparkline(points, min, max, minLabel, maxLabel) {
   const width = 360;
   const height = 64;
   const pad = 6;
   const span = Math.max(points.length - 1, 1);
-  const range = Math.max(max - min, 1e-6);
+  const range = max - min;
   const toX = (index) => pad + (index / span) * (width - pad * 2);
-  const toY = (value) => height - pad - ((value - min) / range) * (height - pad * 2);
+  const toY = (value) => {
+    if (range <= 0) return height / 2;
+    return height - pad - ((value - min) / range) * (height - pad * 2);
+  };
 
   const path = points
     .map((value, index) => `${index === 0 ? 'M' : 'L'} ${toX(index).toFixed(2)} ${toY(value).toFixed(2)}`)
@@ -257,24 +252,27 @@ function renderSparkline(points, min, max) {
 
   return `
     <svg class="mini-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
+      <line class="chart-grid" x1="${pad}" y1="${pad}" x2="${(width - pad).toFixed(2)}" y2="${pad}"></line>
       <line class="chart-grid" x1="${pad}" y1="${(height - pad).toFixed(2)}" x2="${(width - pad).toFixed(2)}" y2="${(height - pad).toFixed(2)}"></line>
+      <text class="chart-scale-label max" x="${(width - pad - 2).toFixed(2)}" y="${(pad + 1).toFixed(2)}" text-anchor="end" dominant-baseline="hanging">${esc(maxLabel)}</text>
+      <text class="chart-scale-label min" x="${(width - pad - 2).toFixed(2)}" y="${(height - pad - 1).toFixed(2)}" text-anchor="end" dominant-baseline="ideographic">${esc(minLabel)}</text>
       <path class="chart-line" d="${path}"></path>
     </svg>
   `;
 }
 
-function renderBars(points, min, max) {
+function renderBars(points, min, max, minLabel, maxLabel) {
   const width = 360;
   const height = 64;
   const pad = 6;
-  const range = Math.max(max - min, 1e-6);
+  const range = max - min;
   const innerWidth = width - pad * 2;
   const barSpace = innerWidth / points.length;
   const barWidth = Math.max(2, barSpace * 0.56);
 
   const bars = points
     .map((value, index) => {
-      const normalized = (value - min) / range;
+      const normalized = range <= 0 ? 0.5 : (value - min) / range;
       const barHeight = Math.max(2, normalized * (height - pad * 2));
       const x = pad + index * barSpace + (barSpace - barWidth) / 2;
       const y = height - pad - barHeight;
@@ -284,14 +282,16 @@ function renderBars(points, min, max) {
 
   return `
     <svg class="mini-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">
+      <line class="chart-grid" x1="${pad}" y1="${pad}" x2="${(width - pad).toFixed(2)}" y2="${pad}"></line>
       <line class="chart-grid" x1="${pad}" y1="${(height - pad).toFixed(2)}" x2="${(width - pad).toFixed(2)}" y2="${(height - pad).toFixed(2)}"></line>
+      <text class="chart-scale-label max" x="${(width - pad - 2).toFixed(2)}" y="${(pad + 1).toFixed(2)}" text-anchor="end" dominant-baseline="hanging">${esc(maxLabel)}</text>
+      <text class="chart-scale-label min" x="${(width - pad - 2).toFixed(2)}" y="${(height - pad - 1).toFixed(2)}" text-anchor="end" dominant-baseline="ideographic">${esc(minLabel)}</text>
       ${bars}
     </svg>
   `;
 }
 
-function renderChart(chartRaw) {
-  const chart = normalizeChart(chartRaw);
+function renderChart(chart) {
   if (!chart) return '';
 
   const latest = chart.points[chart.points.length - 1];
@@ -302,16 +302,18 @@ function renderChart(chartRaw) {
   const numberFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
   const latestLabel = `${numberFormat.format(latest)}${chart.unit}`;
   const deltaLabel = `${deltaPrefix}${numberFormat.format(delta)}${chart.unit}`;
+  const minLabel = `${numberFormat.format(chart.min)}${chart.unit}`;
+  const maxLabel = `${numberFormat.format(chart.max)}${chart.unit}`;
 
   const chartMarkup = chart.kind === 'bars'
-    ? renderBars(chart.points, chart.min, chart.max)
-    : renderSparkline(chart.points, chart.min, chart.max);
+    ? renderBars(chart.points, chart.min, chart.max, minLabel, maxLabel)
+    : renderSparkline(chart.points, chart.min, chart.max, minLabel, maxLabel);
 
   return `
     <div class="chart-wrap chart-${chart.kind}">
       ${chartMarkup}
       <div class="chart-meta">
-        <span>${esc(chart.label)} ${esc(latestLabel)}</span>
+        <span>${esc(latestLabel)}</span>
         <span class="delta ${deltaClass}">${esc(deltaLabel)}</span>
       </div>
     </div>
@@ -319,21 +321,25 @@ function renderChart(chartRaw) {
 }
 
 function renderCard(card) {
+  const chart = normalizeChart(card.chart);
   const source = sourceFromUrl(card.url);
-  const chartMarkup = renderChart(card.chart);
-  const metaParts = [card.type, source].filter(Boolean).map((part) => esc(part)).join(' | ');
+  const chartMarkup = renderChart(chart);
+  const metaParts = [source].filter(Boolean).map((part) => esc(part)).join(' | ');
   const metaMarkup = metaParts ? `<p class="card-meta">${metaParts}</p>` : '';
   const description = card.description ? `<p class="card-copy">${esc(card.description)}</p>` : '';
+  const longDescription = card.long_description ? `<p class="card-long-description">${esc(card.long_description)}</p>` : '';
+  const legendMarkup = chart && chart.label ? `<span class="card-legend">${esc(chart.label)}</span>` : '';
 
   return `
     <article class="card-item" style="--card-span:${asNumber(card._computedSpan, cardSpanFor(card))}">
       <div class="card-head">
         <h3 class="card-title">${esc(card.title || '')}</h3>
+        ${legendMarkup}
       </div>
       ${description}
       ${chartMarkup}
       ${metaMarkup}
-      ${renderMetrics(Array.isArray(card.metrics) ? card.metrics : [])}
+      ${longDescription}
     </article>
   `;
 }

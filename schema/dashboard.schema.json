@@ -44,28 +44,16 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["id", "type", "title"],
+              "required": ["id", "title"],
               "properties": {
                 "id": { "type": "string", "minLength": 1 },
-                "type": { "type": "string" },
                 "title": { "type": "string", "minLength": 1 },
                 "url": { "type": "string" },
                 "description": { "type": "string" },
+                "long_description": { "type": "string" },
                 "hidden": { "type": "boolean" },
                 "priority": { "type": "integer" },
                 "layout": { "$ref": "#/$defs/layout" },
-                "metrics": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "required": ["key", "value"],
-                    "properties": {
-                      "key": { "type": "string" },
-                      "value": {}
-                    },
-                    "additionalProperties": false
-                  }
-                },
                 "chart": { "$ref": "#/$defs/chart" }
               },
               "additionalProperties": false
@@ -110,9 +98,7 @@
           "items": { "type": "number" }
         },
         "unit": { "type": "string" },
-        "label": { "type": "string" },
-        "min": { "type": "number" },
-        "max": { "type": "number" }
+        "label": { "type": "string" }
       },
       "additionalProperties": false
     }

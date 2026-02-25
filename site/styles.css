@@ -222,24 +222,22 @@ h1 {
   color: var(--white);
 }
 
+.card-legend {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  font-size: 9px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .card-copy,
 .card-meta,
-.metrics,
+.card-long-description,
 .chart-meta {
   margin: 0;
   font-size: 10px;
   color: var(--muted);
-}
-
-.metrics {
-  display: grid;
-  gap: 4px;
-}
-
-.metric-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
 }
 
 .chart-wrap {
@@ -260,6 +258,13 @@ h1 {
   stroke: rgba(255, 255, 255, 0.2);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
+}
+
+.chart-scale-label {
+  fill: rgba(215, 215, 215, 0.9);
+  font-size: 9px;
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
 }
 
 .chart-line {

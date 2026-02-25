@@ -32,17 +32,14 @@ cat >"${TMP_FILE}" <<JSON
       "cards": [
         {
           "id": "openclaw",
-          "type": "service",
           "title": "OpenClaw",
           "url": "https://homeserver.tailac3bda.ts.net",
           "description": "Updated by update-dashboard-json.sh",
+          "long_description": "Latest run confirms gateway health and recent automation throughput.",
           "layout": { "span": 12 },
-          "metrics": [
-            { "key": "timestamp", "value": "$(date -u +%H:%M:%S)" }
-          ],
           "chart": {
             "kind": "sparkline",
-            "label": "jobs",
+            "label": "Jobs",
             "points": [2, 2, 3, 2, 3, 4]
           },
           "priority": 10

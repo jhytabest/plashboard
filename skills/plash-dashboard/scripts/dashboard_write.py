@@ -99,13 +99,9 @@ def validate_chart(value: object, path: str) -> None:
         fail(f"{path}.unit must be a string")
     if "label" in value and not isinstance(value["label"], str):
         fail(f"{path}.label must be a string")
-    if "min" in value:
-        validate_number(value["min"], f"{path}.min")
-    if "max" in value:
-        validate_number(value["max"], f"{path}.max")
 
     for key in value:
-        if key not in {"kind", "points", "unit", "label", "min", "max"}:
+        if key not in {"kind", "points", "unit", "label"}:
             fail(f"{path}.{key} is not supported")
 
 
@@ -142,19 +138,19 @@ def validate_ui(payload: dict) -> None:
 
 
 def validate_card(card: dict, path: str) -> None:
-    for key in ("id", "type", "title"):
+    for key in ("id", "title"):
         if key not in card:
             fail(f"{path} missing key: {key}")
 
     validate_non_empty_string(card["id"], f"{path}.id")
     validate_non_empty_string(card["title"], f"{path}.title")
-    if not isinstance(card["type"], str):
-        fail(f"{path}.type must be a string")
 
     if "url" in card and not isinstance(card["url"], str):
         fail(f"{path}.url must be a string")
     if "description" in card and not isinstance(card["description"], str):
         fail(f"{path}.description must be a string")
+    if "long_description" in card and not isinstance(card["long_description"], str):
+        fail(f"{path}.long_description must be a string")
     if "hidden" in card and not isinstance(card["hidden"], bool):
         fail(f"{path}.hidden must be a boolean")
     if "priority" in card:
@@ -164,32 +160,15 @@ def validate_card(card: dict, path: str) -> None:
     if "chart" in card:
         validate_chart(card["chart"], f"{path}.chart")
 
-    metrics = card.get("metrics", [])
-    if not isinstance(metrics, list):
-        fail(f"{path}.metrics must be a list")
-
-    for i, metric in enumerate(metrics):
-        metric_path = f"{path}.metrics[{i}]"
-        if not isinstance(metric, dict):
-            fail(f"{metric_path} must be an object")
-        if "key" not in metric or "value" not in metric:
-            fail(f"{metric_path} must include key and value")
-        if not isinstance(metric["key"], str):
-            fail(f"{metric_path}.key must be a string")
-        for key in metric:
-            if key not in {"key", "value"}:
-                fail(f"{metric_path}.{key} is not supported")
-
     allowed_card_fields = {
         "id",
-        "type",
         "title",
         "url",
         "description",
+        "long_description",
         "hidden",
         "priority",
         "layout",
-        "metrics",
         "chart",
     }
     for key in card:
@@ -263,12 +242,10 @@ def estimate_card_height(card: dict) -> int:
         base += 14
     if card.get("chart"):
         base += 92
-    if card.get("type") or card.get("url"):
+    if card.get("url"):
         base += 12
-
-    metrics = card.get("metrics") if isinstance(card.get("metrics"), list) else []
-    metric_rows = min(len(metrics), 6)
-    base += metric_rows * 13
+    if card.get("long_description"):
+        base += 28
 
     return int(clamp(base, 96, 260))
 
