@@ -85,8 +85,17 @@ git push origin main --follow-tags
 ```
 
 Required one-time GitHub setup:
-- Add repository secret `NPM_TOKEN` (npm automation token with publish rights to `@jhytabest` scope).
 - Ensure GitHub Actions is enabled for the repo.
+- Configure npm trusted publishing for `@jhytabest/plashboard`:
+  - npm package settings -> `Trusted publisher`
+  - Provider: `GitHub Actions`
+  - Organization/User: `jhytabest`
+  - Repository: `plashboard`
+  - Workflow filename: `release.yml`
+- No `NPM_TOKEN` secret is required for publish when trusted publishing is active.
+
+Note for first release:
+- If npm does not let you add trusted publisher before package creation, publish once manually from your machine, then enable trusted publishing for subsequent CI releases.
 
 After release completes, users install/update with:
 

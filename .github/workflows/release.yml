@@ -28,6 +28,11 @@ jobs:
           cache: npm
           cache-dependency-path: plugin/package-lock.json
 
+      - name: Upgrade npm for trusted publishing
+        run: |
+          npm install -g npm@^11.5.1
+          npm --version
+
       - name: Install dependencies
         run: npm ci
 
@@ -54,9 +59,7 @@ jobs:
         run: npm test
 
       - name: Publish to npm
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
 
       - name: Create GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
