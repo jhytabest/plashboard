@@ -37,7 +37,7 @@
           "title": "OpenClaw Gateway",
           "description": "Automation gateway serving dashboard payload.",
           "long_description": "Gateway is stable with 2 jobs running and queue depth currently at 3.",
-          "url": "https://homeserver.tailac3bda.ts.net"
+          "url": "https://example.local"
         },
         {
           "id": "latency",

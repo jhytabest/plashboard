@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/plash-fill-response.schema.json",
+  "title": "Plashboard Fill Response v1",
+  "type": "object",
+  "required": ["values"],
+  "properties": {
+    "values": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

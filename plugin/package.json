@@ -1,0 +1,39 @@
+{
+  "name": "@jhytabest/plashboard",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Plashboard OpenClaw plugin runtime",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/index.ts",
+  "files": [
+    "openclaw.plugin.json",
+    "schema",
+    "scripts",
+    "skills",
+    "src",
+    "tsconfig.json",
+    "vitest.config.ts"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "typescript": "^5.8.3",
+    "vitest": "^4.0.18"
+  },
+  "openclaw": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  }
+}

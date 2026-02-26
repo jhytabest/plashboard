@@ -22,8 +22,8 @@ CARD_GRID_GAP = 10
 ALERT_HEIGHT = 52
 SECTION_CHROME_HEIGHT = 46
 GRID_COLUMNS = 12
-FRAME_GUTTER_TOP = 96
-FRAME_GUTTER_BOTTOM = 106
+FRAME_GUTTER_TOP = max(0, int(os.getenv("PLASH_FRAME_GUTTER_TOP", "96")))
+FRAME_GUTTER_BOTTOM = max(0, int(os.getenv("PLASH_FRAME_GUTTER_BOTTOM", "106")))
 
 
 def now_iso() -> str:
@@ -504,20 +504,39 @@ def atomic_write(path: Path, payload: dict) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate and atomically replace dashboard.json")
     parser.add_argument("--input", required=True, help="Path to next dashboard JSON")
+    parser.add_argument("--output", help="Output dashboard JSON path (default: live dashboard path)")
+    parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="Validate payload only and do not write output file",
+    )
+    parser.add_argument(
+        "--touch-generated-at",
+        action="store_true",
+        help="Force generated_at to current UTC timestamp",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
     payload = json.loads(input_path.read_text(encoding="utf-8"))
     payload["version"] = "3.0"
-    payload["generated_at"] = now_iso()
+    if args.touch_generated_at or "generated_at" not in payload:
+        payload["generated_at"] = now_iso()
 
     validate(payload)
-    atomic_write(DATA_PATH, payload)
+    if not args.validate_only:
+        output_path = Path(args.output) if args.output else DATA_PATH
+        atomic_write(output_path, payload)
+    else:
+        output_path = None
 
     sections = payload.get("sections", [])
     cards = sum(len(section.get("cards", [])) for section in sections if isinstance(section, dict))
     alerts = len(payload.get("alerts", [])) if isinstance(payload.get("alerts", []), list) else 0
-    print(f"wrote {DATA_PATH} (sections={len(sections)} cards={cards} alerts={alerts})")
+    if output_path is None:
+        print(f"validated payload (sections={len(sections)} cards={cards} alerts={alerts})")
+    else:
+        print(f"wrote {output_path} (sections={len(sections)} cards={cards} alerts={alerts})")
 
 
 if __name__ == "__main__":

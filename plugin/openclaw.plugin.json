@@ -1,0 +1,52 @@
+{
+  "id": "plashboard",
+  "name": "Plashboard",
+  "version": "0.1.0",
+  "description": "Template-driven dashboard runtime with scheduled OpenClaw fills and safe publish.",
+  "entry": "./src/index.ts",
+  "skills": ["./skills/plashboard-admin"],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "data_dir": { "type": "string", "default": "/var/lib/openclaw/plash-data" },
+      "timezone": { "type": "string" },
+      "scheduler_tick_seconds": { "type": "integer", "minimum": 5, "default": 30 },
+      "max_parallel_runs": { "type": "integer", "minimum": 1, "maximum": 8, "default": 1 },
+      "default_retry_count": { "type": "integer", "minimum": 0, "maximum": 5, "default": 1 },
+      "retry_backoff_seconds": { "type": "integer", "minimum": 1, "maximum": 300, "default": 20 },
+      "session_timeout_seconds": { "type": "integer", "minimum": 10, "maximum": 600, "default": 90 },
+      "fill_provider": { "type": "string", "enum": ["command", "mock"], "default": "mock" },
+      "fill_command": { "type": "string" },
+      "python_bin": { "type": "string", "default": "python3" },
+      "writer_script_path": { "type": "string" },
+      "dashboard_output_path": { "type": "string" },
+      "layout_overflow_tolerance_px": { "type": "integer", "minimum": 0, "maximum": 200, "default": 40 },
+      "display_profile": {
+        "type": "object",
+        "properties": {
+          "width_px": { "type": "integer", "minimum": 320, "default": 1920 },
+          "height_px": { "type": "integer", "minimum": 240, "default": 1080 },
+          "safe_top_px": { "type": "integer", "minimum": 0, "default": 96 },
+          "safe_bottom_px": { "type": "integer", "minimum": 0, "default": 106 },
+          "safe_side_px": { "type": "integer", "minimum": 0, "default": 28 },
+          "layout_safety_margin_px": { "type": "integer", "minimum": 0, "default": 24 }
+        },
+        "additionalProperties": false
+      },
+      "model_defaults": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string" },
+          "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+          "max_tokens": { "type": "integer", "minimum": 64, "maximum": 8192 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false
+  },
+  "uiHints": {
+    "displayName": "Plashboard",
+    "category": "automation"
+  }
+}

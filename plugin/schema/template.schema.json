@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/plash-template.schema.json",
+  "title": "Plashboard Template v1",
+  "type": "object",
+  "required": ["id", "name", "enabled", "schedule", "base_dashboard", "fields"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "schedule": {
+      "type": "object",
+      "required": ["mode", "every_minutes", "timezone"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "const": "interval"
+        },
+        "every_minutes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "timezone": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "base_dashboard": {
+      "type": "object"
+    },
+    "fields": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "$ref": "#/$defs/field"
+      }
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "dashboard_prompt": { "type": "string" },
+        "section_prompts": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "card_prompts": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "run": {
+      "type": "object",
+      "properties": {
+        "retry_count": { "type": "integer", "minimum": 0, "maximum": 5 },
+        "repair_attempts": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "model": { "type": "string" },
+        "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+        "max_tokens": { "type": "integer", "minimum": 64, "maximum": 8192 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "field": {
+      "type": "object",
+      "required": ["id", "pointer", "type", "prompt"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+        },
+        "pointer": {
+          "type": "string",
+          "pattern": "^/.*"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "boolean", "array"]
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1200
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "constraints": {
+          "type": "object",
+          "properties": {
+            "max_len": { "type": "integer", "minimum": 1, "maximum": 4000 },
+            "min": { "type": "number" },
+            "max": { "type": "number" },
+            "enum": {
+              "type": "array",
+              "items": {
+                "type": ["string", "number", "boolean"]
+              }
+            },
+            "min_items": { "type": "integer", "minimum": 0 },
+            "max_items": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
