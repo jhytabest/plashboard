@@ -30,7 +30,7 @@ No manual config is required for first use. Defaults are safe:
 In chat, run:
 
 ```text
-/plashboard quickstart <what this dashboard should focus on>
+/plashboard onboard <what this dashboard should focus on>
 ```
 
 ## Optional Config
@@ -74,6 +74,7 @@ Use `fill_provider: "command"` only if you need a custom external runner.
 ## Runtime Command
 
 ```text
+/plashboard onboard <description> [local_url] [https_port] [repo_dir]
 /plashboard setup [openclaw [agent_id]|mock|command <fill_command>]
 /plashboard quickstart <description>
 /plashboard doctor [local_url] [https_port] [repo_dir]
@@ -93,10 +94,10 @@ Use `fill_provider: "command"` only if you need a custom external runner.
 Recommended first run:
 
 ```text
-/plashboard quickstart "Focus on service health, priorities, blockers, and next actions."
+/plashboard onboard "Focus on service health, priorities, blockers, and next actions."
 ```
 
-If `quickstart` returns web/exposure warnings:
+If `onboard` returns web/exposure warnings:
 
 ```text
 /plashboard web-guide

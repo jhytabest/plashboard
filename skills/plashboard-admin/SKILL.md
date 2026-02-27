@@ -17,6 +17,7 @@ Use this skill for plashboard runtime administration.
 
 ## Required Tooling
 Always use plugin tools:
+- `plashboard_onboard`
 - `plashboard_setup`
 - `plashboard_exposure_guide`
 - `plashboard_exposure_check`
@@ -42,6 +43,7 @@ Always use plugin tools:
 - Never ask the model to generate full dashboard structure when filling values.
 
 ## Command Shortcuts
+- `/plashboard onboard <description> [local_url] [https_port] [repo_dir]`
 - `/plashboard quickstart <description>`
 - `/plashboard setup [openclaw [agent_id]|mock|command <fill_command>]`
 - `/plashboard doctor [local_url] [https_port] [repo_dir]`

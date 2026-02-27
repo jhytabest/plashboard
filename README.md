@@ -177,11 +177,11 @@ After restart, run:
 Recommended simplified first-run flow (no manual template JSON):
 
 ```text
-/plashboard quickstart "Create a home-ops dashboard focused on health, risks, blockers, and next actions."
+/plashboard onboard "Create a home-ops dashboard focused on health, risks, blockers, and next actions."
 ```
 
-`quickstart` creates a starter template, activates it, and runs it once.
-If local UI or tailscale exposure is missing, `quickstart` now returns warnings and exact follow-up guidance.
+`onboard` runs init + first-template setup (if needed) + doctor checks in one workflow.
+If local UI or tailscale exposure is missing, it returns warnings and exact follow-up guidance.
 
 ```text
 /plashboard web-guide

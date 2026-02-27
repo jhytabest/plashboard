@@ -126,6 +126,10 @@ type DoctorParams = ExposureParams & {
   repo_dir?: string;
 };
 
+type OnboardParams = DoctorParams & QuickstartParams & {
+  force_quickstart?: boolean;
+};
+
 type CommandExecResult = {
   ok: boolean;
   stdout: string;
@@ -607,6 +611,51 @@ async function runDoctor(
   };
 }
 
+async function runOnboard(
+  runtime: PlashboardRuntime,
+  resolvedConfig: ReturnType<typeof resolveConfig>,
+  params: OnboardParams = {}
+): Promise<ToolResponse<Record<string, unknown>>> {
+  const initResult = await runtime.init();
+  if (!initResult.ok) return initResult;
+
+  const beforeStatus = await runtime.status();
+  const beforeTemplateCount = Number(beforeStatus.data?.template_count ?? 0);
+  const shouldQuickstart = params.force_quickstart === true || beforeTemplateCount === 0;
+
+  let quickstartResult: ToolResponse<Record<string, unknown>> | null = null;
+  if (shouldQuickstart) {
+    quickstartResult = await runQuickstart(runtime, resolvedConfig, {
+      description: params.description,
+      template_id: params.template_id,
+      template_name: params.template_name,
+      every_minutes: params.every_minutes,
+      activate: params.activate,
+      run_now: params.run_now
+    });
+  }
+
+  const doctorResult = await runDoctor(runtime, resolvedConfig, {
+    local_url: params.local_url,
+    tailscale_https_port: params.tailscale_https_port,
+    dashboard_output_path: params.dashboard_output_path,
+    repo_dir: params.repo_dir
+  });
+
+  return {
+    ok: doctorResult.ok,
+    errors: doctorResult.errors,
+    data: {
+      workflow: 'onboard',
+      init: initResult.data,
+      quickstart_ran: shouldQuickstart,
+      quickstart: quickstartResult?.data,
+      doctor: doctorResult.data,
+      next_steps: doctorResult.data?.next_steps ?? []
+    }
+  };
+}
+
 export function registerPlashboardPlugin(api: UnknownApi): void {
   const config = resolveConfig(api);
   const runtimeCommand = api.runtime?.system?.runCommandWithTimeout;
@@ -649,6 +698,31 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
     async stop() {
       await runtime.stop();
     }
+  });
+
+  api.registerTool?.({
+    name: 'plashboard_onboard',
+    description: 'Run complete onboarding flow: init, first template (if needed), and readiness doctor.',
+    optional: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        description: { type: 'string' },
+        template_id: { type: 'string' },
+        template_name: { type: 'string' },
+        every_minutes: { type: 'number' },
+        activate: { type: 'boolean' },
+        run_now: { type: 'boolean' },
+        local_url: { type: 'string' },
+        tailscale_https_port: { type: 'number' },
+        dashboard_output_path: { type: 'string' },
+        repo_dir: { type: 'string' },
+        force_quickstart: { type: 'boolean' }
+      },
+      additionalProperties: false
+    },
+    execute: async (_toolCallId: unknown, params: OnboardParams = {}) =>
+      toToolResult(await runOnboard(runtime, config, params))
   });
 
   api.registerTool?.({
@@ -1003,6 +1077,21 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
           })
         );
       }
+      if (cmd === 'onboard') {
+        const localUrl = rest.find((token) => token.startsWith('http://') || token.startsWith('https://'));
+        const portToken = rest.find((token) => /^[0-9]+$/.test(token));
+        const repoDir = rest.find((token) => token.startsWith('/'));
+        const descriptionTokens = rest.filter((token) => token !== localUrl && token !== portToken && token !== repoDir);
+        const description = descriptionTokens.join(' ').trim() || undefined;
+        return toCommandResult(
+          await runOnboard(runtime, config, {
+            description,
+            local_url: localUrl,
+            tailscale_https_port: portToken ? Number(portToken) : undefined,
+            repo_dir: repoDir
+          })
+        );
+      }
       if (cmd === 'setup') {
         const mode = asString(rest[0]).toLowerCase();
         const fillProvider = mode === 'command' || mode === 'mock' || mode === 'openclaw' ? mode : undefined;
@@ -1044,7 +1133,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       return toCommandResult({
         ok: false,
         errors: [
-          'unknown command. supported: setup [openclaw [agent_id]|mock|command <fill_command>], quickstart <description>, doctor [local_url] [https_port] [repo_dir], web-guide [local_url] [repo_dir], expose-guide [local_url] [https_port], expose-check [local_url] [https_port], init, status, list, activate <id>, delete <id>, copy <src> <new-id> [new-name] [activate], run <id>, set-display <width> <height> <top> <bottom>'
+          'unknown command. supported: onboard <description> [local_url] [https_port] [repo_dir], setup [openclaw [agent_id]|mock|command <fill_command>], quickstart <description>, doctor [local_url] [https_port] [repo_dir], web-guide [local_url] [repo_dir], expose-guide [local_url] [https_port], expose-check [local_url] [https_port], init, status, list, activate <id>, delete <id>, copy <src> <new-id> [new-name] [activate], run <id>, set-display <width> <height> <top> <bottom>'
         ]
       });
     }
