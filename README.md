@@ -152,6 +152,29 @@ Add plugin config in `openclaw.json`:
 Use `fill_provider: "command"` with `fill_command` to call a real OpenClaw session command.
 The command receives `PLASHBOARD_PROMPT_JSON` and must print strict JSON response.
 
+## Setup Shortcut
+You can bootstrap plugin config from chat:
+
+```text
+/plashboard setup mock
+# or
+/plashboard setup command <fill_command>
+```
+
+The setup command writes plugin config and returns `restart_required: true`.
+After restart, run:
+
+```text
+/plashboard init
+```
+
+Tailscale guidance/check from chat:
+
+```text
+/plashboard expose-guide [local_url] [https_port]
+/plashboard expose-check [local_url] [https_port]
+```
+
 ## Writer Script
 `plugin/scripts/dashboard_write.py` supports:
 - `--validate-only`

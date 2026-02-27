@@ -56,6 +56,9 @@ For real model runs, switch `fill_provider` to `command` and provide `fill_comma
 ## Runtime Command
 
 ```text
+/plashboard setup [mock|command <fill_command>]
+/plashboard expose-guide [local_url] [https_port]
+/plashboard expose-check [local_url] [https_port]
 /plashboard init
 /plashboard status
 /plashboard list
@@ -64,6 +67,20 @@ For real model runs, switch `fill_provider` to `command` and provide `fill_comma
 /plashboard delete <template-id>
 /plashboard run <template-id>
 /plashboard set-display <width> <height> <safe_top> <safe_bottom>
+```
+
+Recommended first run:
+
+```text
+/plashboard setup mock
+/plashboard init
+```
+
+Tailscale helper flow:
+
+```text
+/plashboard expose-guide
+/plashboard expose-check
 ```
 
 ## Notes
