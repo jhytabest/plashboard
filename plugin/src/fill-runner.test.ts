@@ -37,6 +37,7 @@ function config(overrides: Partial<PlashboardConfig>): PlashboardConfig {
     default_retry_count: 0,
     retry_backoff_seconds: 1,
     session_timeout_seconds: 30,
+    auto_seed_template: false,
     fill_provider: 'mock',
     fill_command: undefined,
     openclaw_fill_agent_id: 'main',

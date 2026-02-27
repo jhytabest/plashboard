@@ -90,6 +90,7 @@ type SetupParams = {
   fill_provider?: 'mock' | 'command' | 'openclaw';
   fill_command?: string;
   openclaw_fill_agent_id?: string;
+  auto_seed_template?: boolean;
   data_dir?: string;
   scheduler_tick_seconds?: number;
   session_timeout_seconds?: number;
@@ -99,6 +100,15 @@ type SetupParams = {
   safe_bottom_px?: number;
   safe_side_px?: number;
   layout_safety_margin_px?: number;
+};
+
+type QuickstartParams = {
+  description?: string;
+  template_id?: string;
+  template_name?: string;
+  every_minutes?: number;
+  activate?: boolean;
+  run_now?: boolean;
 };
 
 type ExposureParams = {
@@ -357,6 +367,13 @@ async function runSetup(api: UnknownApi, resolvedConfig: ReturnType<typeof resol
     || asString(currentPluginConfig.fill_command)
     || asString(resolvedConfig.fill_command)
   ).trim();
+  const selectedAutoSeed = (
+    typeof params.auto_seed_template === 'boolean'
+      ? params.auto_seed_template
+      : typeof currentPluginConfig.auto_seed_template === 'boolean'
+        ? currentPluginConfig.auto_seed_template
+        : resolvedConfig.auto_seed_template
+  );
   const selectedAgentId = (
     params.openclaw_fill_agent_id
     || asString(currentPluginConfig.openclaw_fill_agent_id)
@@ -397,6 +414,7 @@ async function runSetup(api: UnknownApi, resolvedConfig: ReturnType<typeof resol
       )
     ),
     fill_provider: selectedProvider,
+    auto_seed_template: selectedAutoSeed,
     display_profile: displayProfile
   };
 
@@ -438,6 +456,7 @@ async function runSetup(api: UnknownApi, resolvedConfig: ReturnType<typeof resol
       fill_provider: selectedProvider,
       fill_command: selectedProvider === 'command' ? selectedCommand : undefined,
       openclaw_fill_agent_id: selectedProvider === 'openclaw' ? selectedAgentId : undefined,
+      auto_seed_template: selectedAutoSeed,
       data_dir: nextPluginConfig.data_dir,
       scheduler_tick_seconds: nextPluginConfig.scheduler_tick_seconds,
       session_timeout_seconds: nextPluginConfig.session_timeout_seconds,
@@ -538,6 +557,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
         fill_provider: { type: 'string', enum: ['mock', 'command', 'openclaw'] },
         fill_command: { type: 'string' },
         openclaw_fill_agent_id: { type: 'string' },
+        auto_seed_template: { type: 'boolean' },
         data_dir: { type: 'string' },
         scheduler_tick_seconds: { type: 'number' },
         session_timeout_seconds: { type: 'number' },
@@ -564,6 +584,26 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       additionalProperties: false
     },
     execute: async () => toToolResult(await runtime.init())
+  });
+
+  api.registerTool?.({
+    name: 'plashboard_quickstart',
+    description: 'Create a first dashboard template from a short description, activate it, and run it once.',
+    optional: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        description: { type: 'string' },
+        template_id: { type: 'string' },
+        template_name: { type: 'string' },
+        every_minutes: { type: 'number' },
+        activate: { type: 'boolean' },
+        run_now: { type: 'boolean' }
+      },
+      additionalProperties: false
+    },
+    execute: async (_toolCallId: unknown, params: QuickstartParams = {}) =>
+      toToolResult(await runtime.quickstart(params))
   });
 
   api.registerTool?.({
@@ -782,6 +822,10 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
           })
         );
       }
+      if (cmd === 'quickstart') {
+        const description = rest.join(' ').trim() || undefined;
+        return toCommandResult(await runtime.quickstart({ description }));
+      }
       if (cmd === 'init') return toCommandResult(await runtime.init());
       if (cmd === 'status') return toCommandResult(await runtime.status());
       if (cmd === 'list') return toCommandResult(await runtime.templateList());
@@ -806,7 +850,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       return toCommandResult({
         ok: false,
         errors: [
-          'unknown command. supported: setup [openclaw [agent_id]|mock|command <fill_command>], expose-guide [local_url] [https_port], expose-check [local_url] [https_port], init, status, list, activate <id>, delete <id>, copy <src> <new-id> [new-name] [activate], run <id>, set-display <width> <height> <top> <bottom>'
+          'unknown command. supported: setup [openclaw [agent_id]|mock|command <fill_command>], quickstart <description>, expose-guide [local_url] [https_port], expose-check [local_url] [https_port], init, status, list, activate <id>, delete <id>, copy <src> <new-id> [new-name] [activate], run <id>, set-display <width> <height> <top> <bottom>'
         ]
       });
     }

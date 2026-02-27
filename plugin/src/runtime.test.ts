@@ -51,7 +51,7 @@ function template(id: string): DashboardTemplate {
   };
 }
 
-async function setupRuntime() {
+async function setupRuntime(overrides: Partial<PlashboardConfig> = {}) {
   const root = await mkdtemp(join(tmpdir(), 'plashboard-test-'));
   const config: PlashboardConfig = {
     data_dir: root,
@@ -61,6 +61,7 @@ async function setupRuntime() {
     default_retry_count: 0,
     retry_backoff_seconds: 1,
     session_timeout_seconds: 30,
+    auto_seed_template: false,
     fill_provider: 'mock',
     fill_command: undefined,
     python_bin: 'python3',
@@ -75,7 +76,8 @@ async function setupRuntime() {
       safe_side_px: 28,
       layout_safety_margin_px: 24
     },
-    model_defaults: {}
+    model_defaults: {},
+    ...overrides
   };
 
   const runtime = new PlashboardRuntime(config);
@@ -156,6 +158,43 @@ describe('PlashboardRuntime', () => {
       const listAfterDelete = await runtime.templateList();
       expect(listAfterDelete.ok).toBe(true);
       expect(listAfterDelete.data?.templates.map((entry) => entry.id)).toEqual(['ops']);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('auto-seeds a starter template when enabled', async () => {
+    const { runtime, root } = await setupRuntime({ auto_seed_template: true });
+    try {
+      const list = await runtime.templateList();
+      expect(list.ok).toBe(true);
+      const templates = list.data?.templates ?? [];
+      expect(templates.length).toBe(1);
+      expect(String(templates[0]?.id)).toBe('starter');
+
+      const status = await runtime.status();
+      expect(status.ok).toBe(true);
+      expect(status.data?.active_template_id).toBe('starter');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('quickstart creates, activates, and runs once', async () => {
+    const { runtime, root, config } = await setupRuntime({ auto_seed_template: false });
+    try {
+      const quickstart = await runtime.quickstart({
+        description: 'Focus on homelab health, priorities, blockers, and next actions.'
+      });
+      expect(quickstart.ok).toBe(true);
+      const templateId = String(quickstart.data?.template_id || '');
+      expect(templateId).toBeTruthy();
+      expect(quickstart.data?.active_template_id).toBe(templateId);
+      expect(quickstart.data?.run_status).toBe('success');
+
+      const published = JSON.parse(await readFile(config.dashboard_output_path, 'utf8')) as Record<string, unknown>;
+      expect(published.version).toBe('3.0');
+      expect(typeof published.generated_at).toBe('string');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

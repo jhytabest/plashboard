@@ -52,6 +52,7 @@ Install via OpenClaw plugin manager (package manager route):
 ```bash
 openclaw plugins install @jhytabest/plashboard
 openclaw plugins enable plashboard
+sudo systemctl restart openclaw-gateway
 openclaw plugins doctor
 ```
 
@@ -133,6 +134,7 @@ Add plugin config in `openclaw.json`:
           "default_retry_count": 1,
           "retry_backoff_seconds": 20,
           "session_timeout_seconds": 90,
+          "auto_seed_template": true,
           "fill_provider": "openclaw",
           "openclaw_fill_agent_id": "main",
           "display_profile": {
@@ -155,7 +157,7 @@ Optional override: use `fill_provider: "command"` with `fill_command`.
 Custom command mode receives `PLASHBOARD_PROMPT_JSON` and must print strict JSON response.
 
 ## Setup Shortcut
-You can bootstrap plugin config from chat:
+You can bootstrap plugin config from chat (optional):
 
 ```text
 /plashboard setup openclaw
@@ -171,6 +173,14 @@ After restart, run:
 ```text
 /plashboard init
 ```
+
+Recommended simplified first-run flow (no manual template JSON):
+
+```text
+/plashboard quickstart "Create a home-ops dashboard focused on health, risks, blockers, and next actions."
+```
+
+`quickstart` creates a starter template, activates it, and runs it once.
 
 Tailscale guidance/check from chat:
 

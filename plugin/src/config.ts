@@ -22,6 +22,16 @@ function asString(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() ? value : fallback;
 }
 
+function asBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on') return true;
+    if (normalized === 'false' || normalized === '0' || normalized === 'no' || normalized === 'off') return false;
+  }
+  return fallback;
+}
+
 function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -65,6 +75,7 @@ export function resolveConfig(api: unknown): PlashboardConfig {
     default_retry_count: Math.max(0, Math.floor(asNumber(raw.default_retry_count, 1))),
     retry_backoff_seconds: Math.max(1, Math.floor(asNumber(raw.retry_backoff_seconds, 20))),
     session_timeout_seconds: Math.max(10, Math.floor(asNumber(raw.session_timeout_seconds, 90))),
+    auto_seed_template: asBoolean(raw.auto_seed_template, true),
     fill_provider: fillProvider,
     fill_command: typeof raw.fill_command === 'string' ? raw.fill_command : undefined,
     openclaw_fill_agent_id: asString(raw.openclaw_fill_agent_id, 'main'),

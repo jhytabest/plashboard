@@ -23,6 +23,7 @@ export interface PlashboardConfig {
   default_retry_count: number;
   retry_backoff_seconds: number;
   session_timeout_seconds: number;
+  auto_seed_template: boolean;
   fill_provider: 'command' | 'mock' | 'openclaw';
   fill_command?: string;
   openclaw_fill_agent_id?: string;

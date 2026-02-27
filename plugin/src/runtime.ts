@@ -31,6 +31,25 @@ const NOOP_LOGGER: Logger = {
   error: () => {}
 };
 
+function clampInt(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+function normalizeTemplateId(input: string): string {
+  const cleaned = input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '')
+    .replace(/--+/g, '-');
+
+  if (!cleaned) return '';
+  const limited = cleaned.slice(0, 64);
+  if (!/^[a-z0-9]/.test(limited)) return '';
+  return limited;
+}
+
 function resolveLastAttemptMs(state: PlashboardState, templateId: string): number | null {
   const runState = state.template_runs[templateId];
   if (!runState) return null;
@@ -100,23 +119,35 @@ export class PlashboardRuntime {
     await this.paths.ensure();
     await this.loadState();
 
-    const templates = await this.templateStore.list();
     const state = await this.loadState();
+    let templates = await this.templateStore.list();
+    let autoSeededTemplateId: string | null = null;
+    let autoSeededSource: 'live_dashboard' | 'starter' | null = null;
 
     if (!state.display_profile) {
       state.display_profile = this.config.display_profile;
       await this.saveState(state);
     }
 
-    if (!templates.length) {
-      const seeded = await this.seedDefaultTemplate();
-      if (seeded) {
-        const next = await this.templateStore.list();
-        if (!state.active_template_id && next.length) {
-          state.active_template_id = next[0].id;
-          await this.saveState(state);
-        }
+    if (!templates.length && this.config.auto_seed_template) {
+      autoSeededTemplateId = await this.seedTemplateFromLiveDashboard();
+      autoSeededSource = autoSeededTemplateId ? 'live_dashboard' : null;
+
+      if (!autoSeededTemplateId) {
+        autoSeededTemplateId = await this.seedStarterTemplate({
+          preferredId: 'starter',
+          name: 'Starter Dashboard',
+          description: 'A first-run dashboard that summarizes priorities, risks, and next actions.',
+          everyMinutes: 15
+        });
+        autoSeededSource = 'starter';
       }
+    }
+
+    templates = await this.templateStore.list();
+    if (!state.active_template_id && templates.length) {
+      state.active_template_id = autoSeededTemplateId || templates[0].id;
+      await this.saveState(state);
     }
 
     return {
@@ -125,7 +156,11 @@ export class PlashboardRuntime {
       data: {
         data_dir: this.paths.dataDir,
         dashboard_output_path: this.paths.liveDashboardPath,
-        scheduler_tick_seconds: this.config.scheduler_tick_seconds
+        scheduler_tick_seconds: this.config.scheduler_tick_seconds,
+        template_count: templates.length,
+        active_template_id: state.active_template_id,
+        auto_seeded_template_id: autoSeededTemplateId,
+        auto_seeded_source: autoSeededSource
       }
     };
   }
@@ -329,6 +364,88 @@ export class PlashboardRuntime {
         attempt_count: run.attempt_count,
         started_at: run.started_at,
         finished_at: run.finished_at
+      }
+    };
+  }
+
+  async quickstart(params: {
+    description?: string;
+    template_id?: string;
+    template_name?: string;
+    every_minutes?: number;
+    activate?: boolean;
+    run_now?: boolean;
+  } = {}): Promise<ToolResponse<Record<string, unknown>>> {
+    const description = (params.description || '').trim()
+      || 'Create a high-signal operational dashboard with concise summaries and actionable updates.';
+    const everyMinutes = clampInt(
+      Number.isFinite(params.every_minutes) ? Number(params.every_minutes) : 15,
+      1,
+      24 * 60
+    );
+
+    const requestedId = (params.template_id || '').trim();
+    if (requestedId && !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(requestedId)) {
+      return { ok: false, errors: ['template_id is invalid'] };
+    }
+
+    const resolvedTemplateId = requestedId
+      ? await this.allocateTemplateId(requestedId)
+      : await this.allocateTemplateId('quickstart');
+
+    const templateName = (params.template_name || '').trim() || 'Quickstart Dashboard';
+    const template = this.buildStarterTemplate({
+      id: resolvedTemplateId,
+      name: templateName,
+      description,
+      everyMinutes
+    });
+
+    const createResult = await this.templateCreate(template);
+    if (!createResult.ok) return createResult;
+
+    const errors: string[] = [];
+    let activeTemplateId: string | null = null;
+
+    const shouldActivate = params.activate !== false;
+    if (shouldActivate) {
+      const activateResult = await this.templateActivate(resolvedTemplateId);
+      if (!activateResult.ok) {
+        errors.push(...activateResult.errors.map((entry) => `activate: ${entry}`));
+      } else {
+        activeTemplateId = activateResult.data?.active_template_id || null;
+      }
+    } else {
+      const state = await this.loadState();
+      activeTemplateId = state.active_template_id;
+    }
+
+    let runStatus: string | null = null;
+    let published = false;
+    let runErrors: string[] = [];
+    const shouldRunNow = params.run_now !== false;
+    if (shouldRunNow) {
+      const runResult = await this.runNow(resolvedTemplateId);
+      runStatus = String(runResult.data?.status || '');
+      published = Boolean(runResult.data?.published);
+      runErrors = runResult.errors;
+      if (!runResult.ok) {
+        errors.push(...runResult.errors.map((entry) => `run: ${entry}`));
+      }
+    }
+
+    return {
+      ok: errors.length === 0,
+      errors,
+      data: {
+        template_id: resolvedTemplateId,
+        template_name: templateName,
+        schedule_every_minutes: everyMinutes,
+        active_template_id: activeTemplateId,
+        run_now: shouldRunNow,
+        run_status: runStatus,
+        run_published: published,
+        run_errors: runErrors
       }
     };
   }
@@ -571,18 +688,19 @@ export class PlashboardRuntime {
     return state.display_profile || this.config.display_profile;
   }
 
-  private async seedDefaultTemplate(): Promise<boolean> {
+  private async seedTemplateFromLiveDashboard(): Promise<string | null> {
     try {
       await access(this.paths.liveDashboardPath, fsConstants.R_OK);
     } catch {
-      return false;
+      return null;
     }
 
     const text = await readFile(this.paths.liveDashboardPath, 'utf8');
     const dashboard = JSON.parse(text) as Record<string, unknown>;
+    const templateId = await this.allocateTemplateId('default');
 
     const template: DashboardTemplate = {
-      id: 'default',
+      id: templateId,
       name: 'Default Dashboard Template',
       enabled: true,
       schedule: {
@@ -602,7 +720,217 @@ export class PlashboardRuntime {
     };
 
     await this.templateStore.upsert(template);
-    return true;
+    return templateId;
+  }
+
+  private async seedStarterTemplate(params: {
+    preferredId: string;
+    name: string;
+    description: string;
+    everyMinutes: number;
+  }): Promise<string> {
+    const id = await this.allocateTemplateId(params.preferredId);
+    const template = this.buildStarterTemplate({
+      id,
+      name: params.name,
+      description: params.description,
+      everyMinutes: clampInt(params.everyMinutes, 1, 24 * 60)
+    });
+
+    const validationErrors = await this.validateTemplate(template);
+    if (validationErrors.length) {
+      throw new Error(`starter template validation failed: ${validationErrors.join('; ')}`);
+    }
+
+    await this.templateStore.upsert(template);
+    return id;
+  }
+
+  private async allocateTemplateId(preferredId: string): Promise<string> {
+    const normalized = normalizeTemplateId(preferredId) || 'starter';
+    const existing = await this.templateStore.get(normalized);
+    if (!existing) return normalized;
+
+    const base = normalized.slice(0, 58);
+    for (let i = 2; i <= 99; i += 1) {
+      const candidate = `${base}-${i}`;
+      const found = await this.templateStore.get(candidate);
+      if (!found) return candidate;
+    }
+    return `${base}-${Date.now()}`.slice(0, 64);
+  }
+
+  private buildStarterTemplate(params: {
+    id: string;
+    name: string;
+    description: string;
+    everyMinutes: number;
+  }): DashboardTemplate {
+    const description = params.description.trim();
+    return {
+      id: params.id,
+      name: params.name,
+      enabled: true,
+      schedule: {
+        mode: 'interval',
+        every_minutes: params.everyMinutes,
+        timezone: this.config.timezone
+      },
+      base_dashboard: {
+        title: params.name,
+        summary: 'Preparing summary…',
+        ui: {
+          timezone: this.config.timezone
+        },
+        sections: [
+          {
+            id: 'overview',
+            label: 'Overview',
+            cards: [
+              {
+                id: 'pulse',
+                title: 'System Pulse',
+                description: 'Waiting for first run…',
+                long_description: 'This card is filled by OpenClaw on each run.'
+              },
+              {
+                id: 'priorities',
+                title: 'Top Priorities',
+                description: 'Waiting for first run…',
+                long_description: 'This card highlights what matters most right now.'
+              }
+            ]
+          },
+          {
+            id: 'operations',
+            label: 'Operations',
+            cards: [
+              {
+                id: 'risks',
+                title: 'Risks to Watch',
+                description: 'Waiting for first run…'
+              },
+              {
+                id: 'blockers',
+                title: 'Potential Blockers',
+                description: 'Waiting for first run…'
+              }
+            ]
+          },
+          {
+            id: 'actions',
+            label: 'Actions',
+            cards: [
+              {
+                id: 'next_steps',
+                title: 'Next Actions',
+                description: 'Waiting for first run…'
+              },
+              {
+                id: 'questions',
+                title: 'Open Questions',
+                description: 'Waiting for first run…'
+              }
+            ]
+          }
+        ],
+        alerts: []
+      },
+      fields: [
+        {
+          id: 'summary',
+          pointer: '/summary',
+          type: 'string',
+          prompt: 'Write one concise dashboard summary (max 260 chars).',
+          required: true,
+          constraints: { max_len: 260 }
+        },
+        {
+          id: 'pulse',
+          pointer: '/sections/0/cards/0/description',
+          type: 'string',
+          prompt: 'Describe current pulse/status in one short paragraph.',
+          required: true,
+          constraints: { max_len: 280 }
+        },
+        {
+          id: 'pulse_details',
+          pointer: '/sections/0/cards/0/long_description',
+          type: 'string',
+          prompt: 'Provide richer context behind the pulse status with concrete facts.',
+          required: true,
+          constraints: { max_len: 900 }
+        },
+        {
+          id: 'priorities',
+          pointer: '/sections/0/cards/1/description',
+          type: 'string',
+          prompt: 'State the top priorities right now as a compact sentence.',
+          required: true,
+          constraints: { max_len: 280 }
+        },
+        {
+          id: 'priorities_details',
+          pointer: '/sections/0/cards/1/long_description',
+          type: 'string',
+          prompt: 'Explain why these priorities matter and what outcome is expected.',
+          required: true,
+          constraints: { max_len: 900 }
+        },
+        {
+          id: 'risks',
+          pointer: '/sections/1/cards/0/description',
+          type: 'string',
+          prompt: 'Describe the most relevant risks and their likely impact.',
+          required: true,
+          constraints: { max_len: 320 }
+        },
+        {
+          id: 'blockers',
+          pointer: '/sections/1/cards/1/description',
+          type: 'string',
+          prompt: 'List active blockers and the dependency needed to unblock.',
+          required: true,
+          constraints: { max_len: 320 }
+        },
+        {
+          id: 'next_steps',
+          pointer: '/sections/2/cards/0/description',
+          type: 'string',
+          prompt: 'Provide immediate next steps with owners/time hints if possible.',
+          required: true,
+          constraints: { max_len: 320 }
+        },
+        {
+          id: 'questions',
+          pointer: '/sections/2/cards/1/description',
+          type: 'string',
+          prompt: 'List open questions that need decisions soon.',
+          required: true,
+          constraints: { max_len: 320 }
+        }
+      ],
+      context: {
+        dashboard_prompt: `Dashboard objective: ${description}`,
+        section_prompts: {
+          overview: 'Summarize high-level status and priorities for quick scanning.',
+          operations: 'Highlight operational risks and blockers with practical impact.',
+          actions: 'Focus on actionable next steps and unresolved decision points.'
+        },
+        card_prompts: {
+          pulse: `Context: ${description}. Keep it factual and concise.`,
+          priorities: 'Surface the top priorities and expected outcomes.',
+          risks: 'Call out risks that deserve active monitoring.',
+          blockers: 'Describe blockers and what would resolve them.',
+          next_steps: 'Give concrete next actions.',
+          questions: 'Capture open questions requiring a decision.'
+        }
+      },
+      run: {
+        retry_count: this.config.default_retry_count,
+        repair_attempts: 1
+      }
+    };
   }
 
   private async writeRenderedSnapshot(templateId: string, payload: Record<string, unknown>): Promise<void> {

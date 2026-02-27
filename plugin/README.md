@@ -9,6 +9,7 @@ This plugin manages dashboard templates, scheduled fill runs, validation, and at
 ```bash
 openclaw plugins install @jhytabest/plashboard
 openclaw plugins enable plashboard
+sudo systemctl restart openclaw-gateway
 openclaw plugins doctor
 ```
 
@@ -18,7 +19,21 @@ openclaw plugins doctor
 openclaw plugins update plashboard
 ```
 
-## Minimal Config
+## Zero-Config First Run
+
+No manual config is required for first use. Defaults are safe:
+- `fill_provider=openclaw`
+- `openclaw_fill_agent_id=main`
+- automatic init on service start
+- automatic starter template seed when template store is empty
+
+In chat, run:
+
+```text
+/plashboard quickstart <what this dashboard should focus on>
+```
+
+## Optional Config
 
 Add to `openclaw.json`:
 
@@ -35,6 +50,7 @@ Add to `openclaw.json`:
           "default_retry_count": 1,
           "retry_backoff_seconds": 20,
           "session_timeout_seconds": 90,
+          "auto_seed_template": true,
           "fill_provider": "openclaw",
           "openclaw_fill_agent_id": "main",
           "display_profile": {
@@ -59,6 +75,7 @@ Use `fill_provider: "command"` only if you need a custom external runner.
 
 ```text
 /plashboard setup [openclaw [agent_id]|mock|command <fill_command>]
+/plashboard quickstart <description>
 /plashboard expose-guide [local_url] [https_port]
 /plashboard expose-check [local_url] [https_port]
 /plashboard init
@@ -74,8 +91,7 @@ Use `fill_provider: "command"` only if you need a custom external runner.
 Recommended first run:
 
 ```text
-/plashboard setup openclaw
-/plashboard init
+/plashboard quickstart "Focus on service health, priorities, blockers, and next actions."
 ```
 
 Tailscale helper flow:
