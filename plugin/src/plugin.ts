@@ -558,6 +558,11 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
     name: 'plashboard_init',
     description: 'Initialize plashboard state directories and optional default template.',
     optional: true,
+    parameters: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false
+    },
     execute: async () => toToolResult(await runtime.init())
   });
 
@@ -598,6 +603,11 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
     name: 'plashboard_template_list',
     description: 'List available dashboard templates with schedule and run state.',
     optional: true,
+    parameters: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false
+    },
     execute: async () => toToolResult(await runtime.templateList())
   });
 
@@ -703,6 +713,11 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
     name: 'plashboard_status',
     description: 'Read current plashboard runtime status.',
     optional: true,
+    parameters: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false
+    },
     execute: async () => toToolResult(await runtime.status())
   });
 
