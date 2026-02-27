@@ -1,6 +1,6 @@
 ---
 name: plashboard-admin
-description: Manage plashboard templates, activation, copy/delete, run-now triggers, and display profile using plashboard plugin tools.
+description: Manage plashboard templates and autonomously convert natural-language dashboard requests into plashboard tool actions.
 command-dispatch: tool
 ---
 
@@ -9,6 +9,7 @@ command-dispatch: tool
 Use this skill for plashboard runtime administration.
 
 ## Use Cases
+- Convert user requests like "I want dashboard X" into created/activated dashboards automatically.
 - Create, update, copy, delete, and validate dashboard templates.
 - Activate a template as the live dashboard source.
 - Trigger immediate runs.
@@ -41,6 +42,17 @@ Always use plugin tools:
 - Never edit template/state/run JSON files directly.
 - Never perform Docker, Tailscale, or systemd operations.
 - Never ask the model to generate full dashboard structure when filling values.
+- Do not tell end users to run slash commands when tool calls can do the action directly.
+
+## Intent Automation
+- If the user asks for a new dashboard in natural language, call `plashboard_onboard` with:
+  - `description`: user request rewritten as a concrete dashboard objective
+  - `force_quickstart`: `true`
+  - `activate`: `true`
+  - `run_now`: `true`
+- If onboarding returns readiness issues, call `plashboard_web_guide` and `plashboard_exposure_guide`, then present exact operator commands.
+- If the user asks to modify an existing dashboard, call `plashboard_template_list` first, then update/copy/activate/run via tools.
+- Prefer tool execution over conversational planning; only ask clarifying questions if the request is ambiguous.
 
 ## Command Shortcuts
 - `/plashboard onboard <description> [local_url] [https_port] [repo_dir]`

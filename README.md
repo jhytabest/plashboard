@@ -183,6 +183,8 @@ Recommended simplified first-run flow (no manual template JSON):
 `onboard` runs init + first-template setup (if needed) + doctor checks in one workflow.
 If local UI or tailscale exposure is missing, it returns warnings and exact follow-up guidance.
 
+For end users in channels (e.g., Telegram), the bundled `plashboard-admin` skill can trigger the same onboarding/template flow from natural-language requests without slash commands.
+
 ```text
 /plashboard web-guide
 /plashboard expose-guide

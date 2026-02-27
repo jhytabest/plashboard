@@ -33,6 +33,9 @@ In chat, run:
 /plashboard onboard <what this dashboard should focus on>
 ```
 
+For end users (Telegram/other channels), no slash command is required:
+natural-language requests such as "I want a dashboard for X" are handled by the bundled `plashboard-admin` skill via tool calls.
+
 ## Optional Config
 
 Add to `openclaw.json`:

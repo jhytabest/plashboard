@@ -1,7 +1,7 @@
 {
   "id": "plashboard",
   "name": "Plashboard",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Template-driven dashboard runtime with scheduled OpenClaw fills and safe publish.",
   "entry": "./src/index.ts",
   "skills": ["./skills/plashboard-admin"],
