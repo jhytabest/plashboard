@@ -20,6 +20,8 @@ Always use plugin tools:
 - `plashboard_setup`
 - `plashboard_exposure_guide`
 - `plashboard_exposure_check`
+- `plashboard_web_guide`
+- `plashboard_doctor`
 - `plashboard_init`
 - `plashboard_quickstart`
 - `plashboard_template_create`
@@ -42,6 +44,8 @@ Always use plugin tools:
 ## Command Shortcuts
 - `/plashboard quickstart <description>`
 - `/plashboard setup [openclaw [agent_id]|mock|command <fill_command>]`
+- `/plashboard doctor [local_url] [https_port] [repo_dir]`
+- `/plashboard web-guide [local_url] [repo_dir]`
 - `/plashboard expose-guide [local_url] [https_port]`
 - `/plashboard expose-check [local_url] [https_port]`
 - `/plashboard init`

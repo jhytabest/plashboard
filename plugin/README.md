@@ -76,6 +76,8 @@ Use `fill_provider: "command"` only if you need a custom external runner.
 ```text
 /plashboard setup [openclaw [agent_id]|mock|command <fill_command>]
 /plashboard quickstart <description>
+/plashboard doctor [local_url] [https_port] [repo_dir]
+/plashboard web-guide [local_url] [repo_dir]
 /plashboard expose-guide [local_url] [https_port]
 /plashboard expose-check [local_url] [https_port]
 /plashboard init
@@ -92,6 +94,14 @@ Recommended first run:
 
 ```text
 /plashboard quickstart "Focus on service health, priorities, blockers, and next actions."
+```
+
+If `quickstart` returns web/exposure warnings:
+
+```text
+/plashboard web-guide
+/plashboard expose-guide
+/plashboard doctor
 ```
 
 Tailscale helper flow:

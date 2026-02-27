@@ -181,6 +181,13 @@ Recommended simplified first-run flow (no manual template JSON):
 ```
 
 `quickstart` creates a starter template, activates it, and runs it once.
+If local UI or tailscale exposure is missing, `quickstart` now returns warnings and exact follow-up guidance.
+
+```text
+/plashboard web-guide
+/plashboard expose-guide
+/plashboard doctor
+```
 
 Tailscale guidance/check from chat:
 

@@ -117,6 +117,15 @@ type ExposureParams = {
   dashboard_output_path?: string;
 };
 
+type WebGuideParams = {
+  local_url?: string;
+  repo_dir?: string;
+};
+
+type DoctorParams = ExposureParams & {
+  repo_dir?: string;
+};
+
 type CommandExecResult = {
   ok: boolean;
   stdout: string;
@@ -225,6 +234,40 @@ async function buildExposureGuide(resolvedConfig: ReturnType<typeof resolveConfi
         'plashboard only writes dashboard JSON; your local UI/server must serve it.',
         'the tailscale mapping reuses your existing tailnet identity.',
         'choose a port not already used by another tailscale serve mapping.'
+      ]
+    }
+  } satisfies ToolResponse<Record<string, unknown>>;
+}
+
+function deriveRepoDir(raw?: string): string {
+  const value = (raw || '').trim();
+  return value || '/opt/plashboard';
+}
+
+async function buildWebGuide(resolvedConfig: ReturnType<typeof resolveConfig>, params: WebGuideParams = {}) {
+  const localUrl = normalizeLocalUrl(params.local_url);
+  const repoDir = deriveRepoDir(params.repo_dir);
+  const dashboardPath = resolvedConfig.dashboard_output_path;
+
+  return {
+    ok: true,
+    errors: [],
+    data: {
+      local_url: localUrl,
+      repo_dir: repoDir,
+      dashboard_output_path: dashboardPath,
+      commands: [
+        `git clone https://github.com/jhytabest/plashboard.git ${repoDir} || true`,
+        `git -C ${repoDir} pull --ff-only`,
+        `docker compose -f ${repoDir}/docker-compose.yml up -d`,
+        `docker ps --format "{{.Names}} {{.Ports}}" | grep -E "plash-web|18888"`,
+        `curl -I ${localUrl}`,
+        `curl -I ${localUrl}/healthz`
+      ],
+      notes: [
+        'Plashboard writes dashboard JSON; a local web server must serve the UI and /data/dashboard.json.',
+        'The bundled docker-compose stack exposes nginx at 127.0.0.1:18888 by default.',
+        'If you host UI differently, update local_url in expose-check/expose-guide.'
       ]
     }
   } satisfies ToolResponse<Record<string, unknown>>;
@@ -469,6 +512,101 @@ async function runSetup(api: UnknownApi, resolvedConfig: ReturnType<typeof resol
   } satisfies ToolResponse<Record<string, unknown>>;
 }
 
+async function runQuickstart(
+  runtime: PlashboardRuntime,
+  resolvedConfig: ReturnType<typeof resolveConfig>,
+  params: QuickstartParams = {}
+): Promise<ToolResponse<Record<string, unknown>>> {
+  const quickstart = await runtime.quickstart(params);
+  const exposure = await runExposureCheck(resolvedConfig, {});
+  const guide = await buildExposureGuide(resolvedConfig, {});
+  const webGuide = await buildWebGuide(resolvedConfig, {});
+
+  const warnings: string[] = [];
+  if (!exposure.ok) {
+    warnings.push(...exposure.errors);
+  }
+
+  return {
+    ok: quickstart.ok,
+    errors: quickstart.errors,
+    data: {
+      ...(quickstart.data || {}),
+      postcheck: {
+        local_url: exposure.data?.local_url,
+        local_url_ok: exposure.data?.local_url_ok,
+        tailscale_port_configured: exposure.data?.tailscale_port_configured,
+        dashboard_exists: exposure.data?.dashboard_exists
+      },
+      warnings,
+      next_steps: warnings.length
+        ? [
+          'run /plashboard web-guide and execute its commands',
+          'run /plashboard expose-guide and apply tailscale mapping',
+          'run /plashboard doctor'
+        ]
+        : [
+          'dashboard generation is working',
+          'run /plashboard doctor for full readiness check'
+        ],
+      exposure_guide: guide.data,
+      web_guide: webGuide.data
+    }
+  };
+}
+
+async function runDoctor(
+  runtime: PlashboardRuntime,
+  resolvedConfig: ReturnType<typeof resolveConfig>,
+  params: DoctorParams = {}
+): Promise<ToolResponse<Record<string, unknown>>> {
+  const status = await runtime.status();
+  const exposure = await runExposureCheck(resolvedConfig, params);
+  const exposureGuide = await buildExposureGuide(resolvedConfig, params);
+  const webGuide = await buildWebGuide(resolvedConfig, params);
+
+  const issues: string[] = [];
+  const statusData = status.data;
+  const templateCount = Number(statusData?.template_count ?? 0);
+  const activeTemplateId = statusData?.active_template_id || null;
+
+  if (!status.ok) issues.push(...status.errors);
+  if (templateCount === 0) issues.push('no templates exist; run /plashboard quickstart "<description>"');
+  if (!activeTemplateId) issues.push('no active template; activate one with /plashboard activate <template-id>');
+  if (exposure.data?.dashboard_exists !== true) {
+    issues.push(`dashboard output missing at ${resolvedConfig.dashboard_output_path}`);
+  }
+  if (exposure.data?.local_url_ok !== true) {
+    issues.push(`local dashboard server is not reachable at ${String(exposure.data?.local_url || 'http://127.0.0.1:18888')}`);
+  }
+  if (exposure.data?.tailscale_status_ok !== true) {
+    issues.push('tailscale serve status failed');
+  } else if (exposure.data?.tailscale_port_configured !== true) {
+    issues.push(`tailscale serve mapping missing for port ${String(exposure.data?.tailscale_https_port || 8444)}`);
+  }
+
+  const ready = issues.length === 0;
+  return {
+    ok: ready,
+    errors: issues,
+    data: {
+      ready,
+      status: statusData,
+      exposure: exposure.data,
+      exposure_guide: exposureGuide.data,
+      web_guide: webGuide.data,
+      next_steps: ready
+        ? ['dashboard runtime + web exposure look healthy']
+        : [
+          'run /plashboard quickstart "<description>" if no templates exist',
+          'run /plashboard web-guide and start local UI server',
+          'run /plashboard expose-guide and apply tailscale mapping',
+          're-run /plashboard doctor'
+        ]
+    }
+  };
+}
+
 export function registerPlashboardPlugin(api: UnknownApi): void {
   const config = resolveConfig(api);
   const runtimeCommand = api.runtime?.system?.runCommandWithTimeout;
@@ -548,6 +686,40 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
   });
 
   api.registerTool?.({
+    name: 'plashboard_web_guide',
+    description: 'Return exact commands to start the local plashboard web UI server.',
+    optional: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        local_url: { type: 'string' },
+        repo_dir: { type: 'string' }
+      },
+      additionalProperties: false
+    },
+    execute: async (_toolCallId: unknown, params: WebGuideParams = {}) =>
+      toToolResult(await buildWebGuide(config, params))
+  });
+
+  api.registerTool?.({
+    name: 'plashboard_doctor',
+    description: 'Run full plashboard readiness checks (templates, local UI, and tailscale mapping).',
+    optional: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        local_url: { type: 'string' },
+        tailscale_https_port: { type: 'number' },
+        dashboard_output_path: { type: 'string' },
+        repo_dir: { type: 'string' }
+      },
+      additionalProperties: false
+    },
+    execute: async (_toolCallId: unknown, params: DoctorParams = {}) =>
+      toToolResult(await runDoctor(runtime, config, params))
+  });
+
+  api.registerTool?.({
     name: 'plashboard_setup',
     description: 'Bootstrap or update plashboard plugin configuration in openclaw.json.',
     optional: true,
@@ -603,7 +775,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       additionalProperties: false
     },
     execute: async (_toolCallId: unknown, params: QuickstartParams = {}) =>
-      toToolResult(await runtime.quickstart(params))
+      toToolResult(await runQuickstart(runtime, config, params))
   });
 
   api.registerTool?.({
@@ -809,6 +981,28 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
           })
         );
       }
+      if (cmd === 'web-guide') {
+        const localUrl = rest.find((token) => token.startsWith('http://') || token.startsWith('https://'));
+        const repoDir = rest.find((token) => token.startsWith('/'));
+        return toCommandResult(
+          await buildWebGuide(config, {
+            local_url: localUrl,
+            repo_dir: repoDir
+          })
+        );
+      }
+      if (cmd === 'doctor') {
+        const localUrl = rest.find((token) => token.startsWith('http://') || token.startsWith('https://'));
+        const portToken = rest.find((token) => /^[0-9]+$/.test(token));
+        const repoDir = rest.find((token) => token.startsWith('/'));
+        return toCommandResult(
+          await runDoctor(runtime, config, {
+            local_url: localUrl,
+            tailscale_https_port: portToken ? Number(portToken) : undefined,
+            repo_dir: repoDir
+          })
+        );
+      }
       if (cmd === 'setup') {
         const mode = asString(rest[0]).toLowerCase();
         const fillProvider = mode === 'command' || mode === 'mock' || mode === 'openclaw' ? mode : undefined;
@@ -824,7 +1018,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       }
       if (cmd === 'quickstart') {
         const description = rest.join(' ').trim() || undefined;
-        return toCommandResult(await runtime.quickstart({ description }));
+        return toCommandResult(await runQuickstart(runtime, config, { description }));
       }
       if (cmd === 'init') return toCommandResult(await runtime.init());
       if (cmd === 'status') return toCommandResult(await runtime.status());
@@ -850,7 +1044,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       return toCommandResult({
         ok: false,
         errors: [
-          'unknown command. supported: setup [openclaw [agent_id]|mock|command <fill_command>], quickstart <description>, expose-guide [local_url] [https_port], expose-check [local_url] [https_port], init, status, list, activate <id>, delete <id>, copy <src> <new-id> [new-name] [activate], run <id>, set-display <width> <height> <top> <bottom>'
+          'unknown command. supported: setup [openclaw [agent_id]|mock|command <fill_command>], quickstart <description>, doctor [local_url] [https_port] [repo_dir], web-guide [local_url] [repo_dir], expose-guide [local_url] [https_port], expose-check [local_url] [https_port], init, status, list, activate <id>, delete <id>, copy <src> <new-id> [new-name] [activate], run <id>, set-display <width> <height> <top> <bottom>'
         ]
       });
     }
