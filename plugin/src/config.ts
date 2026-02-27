@@ -77,6 +77,7 @@ export function resolveConfig(api: unknown): PlashboardConfig {
     session_timeout_seconds: Math.max(10, Math.floor(asNumber(raw.session_timeout_seconds, 90))),
     auto_seed_template: asBoolean(raw.auto_seed_template, true),
     fill_provider: fillProvider,
+    allow_command_fill: asBoolean(raw.allow_command_fill, false),
     fill_command: typeof raw.fill_command === 'string' ? raw.fill_command : undefined,
     openclaw_fill_agent_id: asString(raw.openclaw_fill_agent_id, 'main'),
     python_bin: asString(raw.python_bin, 'python3'),

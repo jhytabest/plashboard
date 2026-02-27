@@ -1,9 +1,15 @@
-import { spawn } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
-import { access, stat } from 'node:fs/promises';
+import { access, chmod, stat } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import type { DisplayProfile, ToolResponse } from './types.js';
 import { resolveConfig } from './config.js';
 import { PlashboardRuntime } from './runtime.js';
+import {
+  createRuntimeCommandRunner,
+  runCommand,
+  type CommandRunner,
+  type RuntimeCommandWithTimeout
+} from './command-runner.js';
 
 type UnknownApi = {
   registerTool?: (definition: unknown) => void;
@@ -20,24 +26,7 @@ type UnknownApi = {
       writeConfigFile?: (nextConfig: unknown) => Promise<void>;
     };
     system?: {
-      runCommandWithTimeout?: (
-        argv: string[],
-        optionsOrTimeout: number | {
-          timeoutMs: number;
-          cwd?: string;
-          input?: string;
-          env?: NodeJS.ProcessEnv;
-          windowsVerbatimArguments?: boolean;
-          noOutputTimeoutMs?: number;
-        }
-      ) => Promise<{
-        stdout: string;
-        stderr: string;
-        code: number | null;
-        signal?: NodeJS.Signals | null;
-        killed?: boolean;
-        termination?: string;
-      }>;
+      runCommandWithTimeout?: RuntimeCommandWithTimeout;
     };
   };
   config?: unknown;
@@ -88,6 +77,7 @@ function asErrorMessage(error: unknown): string {
 
 type SetupParams = {
   fill_provider?: 'mock' | 'command' | 'openclaw';
+  allow_command_fill?: boolean;
   fill_command?: string;
   openclaw_fill_agent_id?: string;
   auto_seed_template?: boolean;
@@ -126,16 +116,12 @@ type DoctorParams = ExposureParams & {
   repo_dir?: string;
 };
 
-type OnboardParams = DoctorParams & QuickstartParams & {
-  force_quickstart?: boolean;
+type PermissionsFixParams = {
+  dashboard_output_path?: string;
 };
 
-type CommandExecResult = {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-  code: number | null;
-  error?: string;
+type OnboardParams = DoctorParams & QuickstartParams & {
+  force_quickstart?: boolean;
 };
 
 function normalizeLocalUrl(raw: string | undefined): string {
@@ -155,61 +141,99 @@ function normalizePort(raw: number | undefined, fallback: number): number {
   return Math.max(1, Math.min(65535, value));
 }
 
-function runCommand(binary: string, args: string[], timeoutMs: number): Promise<CommandExecResult> {
-  return new Promise((resolve) => {
-    const child = spawn(binary, args, {
-      env: process.env
-    });
+function parseJsonLoose(input: string): unknown | undefined {
+  const trimmed = input.trim();
+  if (!trimmed) return undefined;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // continue
+  }
 
-    let stdout = '';
-    let stderr = '';
-    let settled = false;
+  const starts = ['{', '['];
+  for (const opener of starts) {
+    const start = trimmed.indexOf(opener);
+    if (start < 0) continue;
+    const closer = opener === '{' ? '}' : ']';
+    const end = trimmed.lastIndexOf(closer);
+    if (end <= start) continue;
+    const candidate = trimmed.slice(start, end + 1);
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // continue
+    }
+  }
+  return undefined;
+}
 
-    const finish = (result: CommandExecResult) => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
+function octalMode(value: number | undefined): string | undefined {
+  if (!Number.isFinite(value)) return undefined;
+  return `0${(value! & 0o777).toString(8).padStart(3, '0')}`;
+}
+
+async function listOpenClawAgentIds(commandRunner: CommandRunner | null): Promise<{
+  ok: boolean;
+  ids: string[];
+  error?: string;
+}> {
+  const result = await runCommand(
+    commandRunner,
+    ['openclaw', 'agents', 'list', '--json'],
+    12_000,
+    'openclaw agents list'
+  );
+  if (!result.ok) {
+    return {
+      ok: false,
+      ids: [],
+      error: result.error || result.stderr || `exit ${String(result.code)}`
     };
+  }
 
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      finish({
-        ok: false,
-        stdout,
-        stderr,
-        code: null,
-        error: `timed out after ${Math.floor(timeoutMs / 1000)}s`
-      });
-    }, timeoutMs);
+  const parsed = parseJsonLoose(result.stdout);
+  if (!Array.isArray(parsed)) {
+    return { ok: false, ids: [], error: 'unable to parse openclaw agents list output' };
+  }
 
-    child.stdout.on('data', (chunk) => {
-      stdout += String(chunk);
-    });
-    child.stderr.on('data', (chunk) => {
-      stderr += String(chunk);
-    });
+  const ids = parsed
+    .map((entry) => asObject(entry))
+    .map((entry) => asString(entry.id))
+    .filter(Boolean);
+  return { ok: true, ids };
+}
 
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      finish({
-        ok: false,
-        stdout,
-        stderr,
-        code: null,
-        error: asString((error as { message?: unknown }).message) || 'spawn failed'
-      });
-    });
+async function checkWriterPreflight(
+  resolvedConfig: ReturnType<typeof resolveConfig>,
+  commandRunner: CommandRunner | null
+): Promise<{
+  ready: boolean;
+  errors: string[];
+  python_version?: string;
+}> {
+  const errors: string[] = [];
 
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      finish({
-        ok: code === 0,
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-        code
-      });
-    });
-  });
+  try {
+    await access(resolvedConfig.writer_script_path, fsConstants.R_OK);
+  } catch {
+    errors.push(`writer script is not readable: ${resolvedConfig.writer_script_path}`);
+  }
+
+  const version = await runCommand(
+    commandRunner,
+    [resolvedConfig.python_bin, '--version'],
+    8_000,
+    'python runtime preflight'
+  );
+  if (!version.ok) {
+    errors.push(`python runtime check failed: ${version.error || version.stderr || `exit ${String(version.code)}`}`);
+  }
+
+  return {
+    ready: errors.length === 0,
+    errors,
+    python_version: version.ok ? (version.stdout || version.stderr) : undefined
+  };
 }
 
 async function buildExposureGuide(resolvedConfig: ReturnType<typeof resolveConfig>, params: ExposureParams = {}) {
@@ -232,7 +256,8 @@ async function buildExposureGuide(resolvedConfig: ReturnType<typeof resolveConfi
       ],
       checks: [
         `test -f ${dashboardPath}`,
-        `curl -I ${localUrl}`
+        `curl -I ${localUrl}`,
+        `curl -I ${localUrl.replace(/\/$/, '')}/data/dashboard.json`
       ],
       notes: [
         'plashboard only writes dashboard JSON; your local UI/server must serve it.',
@@ -277,15 +302,21 @@ async function buildWebGuide(resolvedConfig: ReturnType<typeof resolveConfig>, p
   } satisfies ToolResponse<Record<string, unknown>>;
 }
 
-async function runExposureCheck(resolvedConfig: ReturnType<typeof resolveConfig>, params: ExposureParams = {}) {
+async function runExposureCheck(
+  resolvedConfig: ReturnType<typeof resolveConfig>,
+  commandRunner: CommandRunner | null,
+  params: ExposureParams = {}
+) {
   const localUrl = normalizeLocalUrl(params.local_url);
   const httpsPort = normalizePort(asNumber(params.tailscale_https_port), 8444);
   const dashboardPath = (params.dashboard_output_path || resolvedConfig.dashboard_output_path).trim();
+  const dataDirPath = dirname(dashboardPath);
   const errors: string[] = [];
 
   let dashboardExists = false;
   let dashboardSizeBytes: number | undefined;
   let dashboardMtimeIso: string | undefined;
+  let dataDirMode: number | undefined;
 
   try {
     await access(dashboardPath, fsConstants.R_OK);
@@ -296,10 +327,20 @@ async function runExposureCheck(resolvedConfig: ReturnType<typeof resolveConfig>
   } catch {
     errors.push(`dashboard file is not readable: ${dashboardPath}`);
   }
+  try {
+    const dirInfo = await stat(dataDirPath);
+    dataDirMode = dirInfo.mode & 0o777;
+  } catch {
+    // ignore
+  }
 
   let localUrlOk = false;
   let localStatusCode: number | undefined;
   let localError: string | undefined;
+  const localDashboardUrl = new URL('/data/dashboard.json', localUrl).toString();
+  let localDashboardOk = false;
+  let localDashboardStatusCode: number | undefined;
+  let localDashboardError: string | undefined;
 
   try {
     const controller = new AbortController();
@@ -319,16 +360,42 @@ async function runExposureCheck(resolvedConfig: ReturnType<typeof resolveConfig>
     errors.push(`local dashboard URL is not reachable: ${localUrl} (${localError})`);
   }
 
-  const tailscale = await runCommand('tailscale', ['serve', 'status'], 8000);
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(localDashboardUrl, {
+      method: 'GET',
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    localDashboardStatusCode = response.status;
+    localDashboardOk = response.status >= 200 && response.status < 300;
+    if (!localDashboardOk) {
+      errors.push(`dashboard JSON URL returned status ${response.status}: ${localDashboardUrl}`);
+      if (response.status === 403) {
+        errors.push(`dashboard JSON access denied; check directory permissions for ${dataDirPath}`);
+      }
+    }
+  } catch (error) {
+    localDashboardError = asErrorMessage(error);
+    errors.push(`dashboard JSON URL is not reachable: ${localDashboardUrl} (${localDashboardError})`);
+  }
+
+  const tailscale = await runCommand(commandRunner, ['tailscale', 'serve', 'status'], 8000, 'tailscale serve status');
   const tailscaleOutput = `${tailscale.stdout}\n${tailscale.stderr}`.trim();
   let tailscalePortConfigured = false;
+  let tailscaleTargetConfigured = false;
 
   if (!tailscale.ok) {
     errors.push(`tailscale serve status failed: ${tailscale.error || tailscale.stderr || `exit ${tailscale.code}`}`);
   } else {
     tailscalePortConfigured = tailscaleOutput.includes(`:${httpsPort}`);
+    tailscaleTargetConfigured = tailscaleOutput.includes(`proxy ${localUrl.replace(/\/$/, '')}`);
     if (!tailscalePortConfigured) {
       errors.push(`tailscale serve has no mapping for https port ${httpsPort}`);
+    }
+    if (!tailscaleTargetConfigured) {
+      errors.push(`tailscale serve mapping does not target ${localUrl}`);
     }
   }
 
@@ -344,15 +411,28 @@ async function runExposureCheck(resolvedConfig: ReturnType<typeof resolveConfig>
       local_url_ok: localUrlOk,
       local_status_code: localStatusCode,
       local_error: localError,
+      local_dashboard_url: localDashboardUrl,
+      local_dashboard_ok: localDashboardOk,
+      local_dashboard_status_code: localDashboardStatusCode,
+      local_dashboard_error: localDashboardError,
+      data_dir_path: dataDirPath,
+      data_dir_mode: dataDirMode,
+      data_dir_mode_octal: octalMode(dataDirMode),
       tailscale_https_port: httpsPort,
       tailscale_status_ok: tailscale.ok,
       tailscale_port_configured: tailscalePortConfigured,
+      tailscale_target_configured: tailscaleTargetConfigured,
       tailscale_status_excerpt: tailscaleOutput.slice(0, 1200)
     }
   } satisfies ToolResponse<Record<string, unknown>>;
 }
 
-async function runSetup(api: UnknownApi, resolvedConfig: ReturnType<typeof resolveConfig>, params: SetupParams = {}) {
+async function runSetup(
+  api: UnknownApi,
+  resolvedConfig: ReturnType<typeof resolveConfig>,
+  commandRunner: CommandRunner | null,
+  params: SetupParams = {}
+) {
   const loadConfig = api.runtime?.config?.loadConfig;
   const writeConfigFile = api.runtime?.config?.writeConfigFile;
 
@@ -421,6 +501,13 @@ async function runSetup(api: UnknownApi, resolvedConfig: ReturnType<typeof resol
         ? currentPluginConfig.auto_seed_template
         : resolvedConfig.auto_seed_template
   );
+  const selectedAllowCommandFill = (
+    typeof params.allow_command_fill === 'boolean'
+      ? params.allow_command_fill
+      : typeof currentPluginConfig.allow_command_fill === 'boolean'
+        ? Boolean(currentPluginConfig.allow_command_fill)
+        : resolvedConfig.allow_command_fill
+  );
   const selectedAgentId = (
     params.openclaw_fill_agent_id
     || asString(currentPluginConfig.openclaw_fill_agent_id)
@@ -434,10 +521,48 @@ async function runSetup(api: UnknownApi, resolvedConfig: ReturnType<typeof resol
       errors: ['fill_provider=command requires fill_command']
     } satisfies ToolResponse<Record<string, unknown>>;
   }
+  if (selectedProvider === 'command' && !selectedAllowCommandFill) {
+    return {
+      ok: false,
+      errors: ['fill_provider=command requires allow_command_fill=true']
+    } satisfies ToolResponse<Record<string, unknown>>;
+  }
+  if (selectedProvider === 'command' && !commandRunner) {
+    return {
+      ok: false,
+      errors: ['fill_provider=command requires runtime command runner support in this OpenClaw build']
+    } satisfies ToolResponse<Record<string, unknown>>;
+  }
   if (selectedProvider === 'openclaw' && !selectedAgentId) {
     return {
       ok: false,
       errors: ['fill_provider=openclaw requires openclaw_fill_agent_id']
+    } satisfies ToolResponse<Record<string, unknown>>;
+  }
+  if (selectedProvider === 'openclaw') {
+    const agents = await listOpenClawAgentIds(commandRunner);
+    if (!agents.ok) {
+      return {
+        ok: false,
+        errors: [`unable to validate openclaw_fill_agent_id: ${agents.error || 'unknown error'}`]
+      } satisfies ToolResponse<Record<string, unknown>>;
+    }
+    if (!agents.ids.includes(selectedAgentId)) {
+      return {
+        ok: false,
+        errors: [
+          `openclaw_fill_agent_id not found: ${selectedAgentId}`,
+          `available agent ids: ${agents.ids.join(', ') || '(none)'}`
+        ]
+      } satisfies ToolResponse<Record<string, unknown>>;
+    }
+  }
+
+  const preflight = await checkWriterPreflight(resolvedConfig, commandRunner);
+  if (!preflight.ready) {
+    return {
+      ok: false,
+      errors: preflight.errors
     } satisfies ToolResponse<Record<string, unknown>>;
   }
 
@@ -461,6 +586,7 @@ async function runSetup(api: UnknownApi, resolvedConfig: ReturnType<typeof resol
       )
     ),
     fill_provider: selectedProvider,
+    allow_command_fill: selectedAllowCommandFill,
     auto_seed_template: selectedAutoSeed,
     display_profile: displayProfile
   };
@@ -501,6 +627,7 @@ async function runSetup(api: UnknownApi, resolvedConfig: ReturnType<typeof resol
       restart_required: true,
       plugin_id: 'plashboard',
       fill_provider: selectedProvider,
+      allow_command_fill: selectedAllowCommandFill,
       fill_command: selectedProvider === 'command' ? selectedCommand : undefined,
       openclaw_fill_agent_id: selectedProvider === 'openclaw' ? selectedAgentId : undefined,
       auto_seed_template: selectedAutoSeed,
@@ -508,6 +635,7 @@ async function runSetup(api: UnknownApi, resolvedConfig: ReturnType<typeof resol
       scheduler_tick_seconds: nextPluginConfig.scheduler_tick_seconds,
       session_timeout_seconds: nextPluginConfig.session_timeout_seconds,
       display_profile: displayProfile,
+      python_version: preflight.python_version,
       next_steps: [
         'restart OpenClaw gateway',
         'run /plashboard init'
@@ -516,13 +644,72 @@ async function runSetup(api: UnknownApi, resolvedConfig: ReturnType<typeof resol
   } satisfies ToolResponse<Record<string, unknown>>;
 }
 
+async function runPermissionsFix(
+  resolvedConfig: ReturnType<typeof resolveConfig>,
+  params: PermissionsFixParams = {}
+): Promise<ToolResponse<Record<string, unknown>>> {
+  const dashboardPath = (params.dashboard_output_path || resolvedConfig.dashboard_output_path).trim();
+  const dataDirPath = dirname(dashboardPath);
+  const errors: string[] = [];
+
+  let beforeDataDirMode: number | undefined;
+  let beforeDashboardMode: number | undefined;
+  let afterDataDirMode: number | undefined;
+  let afterDashboardMode: number | undefined;
+
+  try {
+    beforeDataDirMode = (await stat(dataDirPath)).mode & 0o777;
+  } catch (error) {
+    return {
+      ok: false,
+      errors: [`data directory is missing or unreadable: ${dataDirPath} (${asErrorMessage(error)})`]
+    };
+  }
+
+  try {
+    beforeDashboardMode = (await stat(dashboardPath)).mode & 0o777;
+  } catch {
+    // dashboard file may not exist yet
+  }
+
+  try {
+    await chmod(dataDirPath, 0o755);
+    afterDataDirMode = (await stat(dataDirPath)).mode & 0o777;
+  } catch (error) {
+    errors.push(`failed to set directory mode for ${dataDirPath}: ${asErrorMessage(error)}`);
+  }
+
+  try {
+    await access(dashboardPath, fsConstants.F_OK);
+    await chmod(dashboardPath, 0o644);
+    afterDashboardMode = (await stat(dashboardPath)).mode & 0o777;
+  } catch {
+    // dashboard file may not exist yet
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    data: {
+      dashboard_output_path: dashboardPath,
+      data_dir_path: dataDirPath,
+      before_data_dir_mode_octal: octalMode(beforeDataDirMode),
+      after_data_dir_mode_octal: octalMode(afterDataDirMode),
+      before_dashboard_mode_octal: octalMode(beforeDashboardMode),
+      after_dashboard_mode_octal: octalMode(afterDashboardMode),
+      note: 'This is an explicit compatibility fix for dashboard web servers that read through bind mounts.'
+    }
+  };
+}
+
 async function runQuickstart(
   runtime: PlashboardRuntime,
   resolvedConfig: ReturnType<typeof resolveConfig>,
+  commandRunner: CommandRunner | null,
   params: QuickstartParams = {}
 ): Promise<ToolResponse<Record<string, unknown>>> {
   const quickstart = await runtime.quickstart(params);
-  const exposure = await runExposureCheck(resolvedConfig, {});
+  const exposure = await runExposureCheck(resolvedConfig, commandRunner, {});
   const guide = await buildExposureGuide(resolvedConfig, {});
   const webGuide = await buildWebGuide(resolvedConfig, {});
 
@@ -562,19 +749,62 @@ async function runQuickstart(
 async function runDoctor(
   runtime: PlashboardRuntime,
   resolvedConfig: ReturnType<typeof resolveConfig>,
+  commandRunner: CommandRunner | null,
   params: DoctorParams = {}
 ): Promise<ToolResponse<Record<string, unknown>>> {
   const status = await runtime.status();
-  const exposure = await runExposureCheck(resolvedConfig, params);
+  const templateList = await runtime.templateList();
+  const exposure = await runExposureCheck(resolvedConfig, commandRunner, params);
   const exposureGuide = await buildExposureGuide(resolvedConfig, params);
   const webGuide = await buildWebGuide(resolvedConfig, params);
+  const writerPreflight = await checkWriterPreflight(resolvedConfig, commandRunner);
 
   const issues: string[] = [];
+  const warnings: string[] = [];
   const statusData = status.data;
   const templateCount = Number(statusData?.template_count ?? 0);
   const activeTemplateId = statusData?.active_template_id || null;
+  const runtimeCommandRunnerAvailable = Boolean(statusData?.capabilities?.runtime_command_runner_available);
+  const commandFillAllowed = Boolean(statusData?.capabilities?.command_fill_allowed);
+
+  let fillProviderReady = resolvedConfig.fill_provider === 'mock'
+    ? true
+    : resolvedConfig.fill_provider === 'openclaw'
+      ? runtimeCommandRunnerAvailable && Boolean((resolvedConfig.openclaw_fill_agent_id || '').trim())
+      : runtimeCommandRunnerAvailable && commandFillAllowed && Boolean((resolvedConfig.fill_command || '').trim());
+
+  let fillAgentIds: string[] = [];
+  if (resolvedConfig.fill_provider === 'openclaw') {
+    const agents = await listOpenClawAgentIds(commandRunner);
+    if (!agents.ok) {
+      fillProviderReady = false;
+      issues.push(`unable to validate openclaw_fill_agent_id: ${agents.error || 'unknown error'}`);
+    } else {
+      fillAgentIds = agents.ids;
+      if (!agents.ids.includes(resolvedConfig.openclaw_fill_agent_id || 'main')) {
+        fillProviderReady = false;
+        issues.push(`openclaw_fill_agent_id not found: ${resolvedConfig.openclaw_fill_agent_id || 'main'}`);
+      }
+      if ((resolvedConfig.openclaw_fill_agent_id || 'main').trim() === 'main') {
+        warnings.push('openclaw_fill_agent_id=main can cause session lock contention; prefer a dedicated fill agent.');
+      }
+    }
+  }
+
+  const writerRunnerReady = writerPreflight.ready;
 
   if (!status.ok) issues.push(...status.errors);
+  if (!templateList.ok) issues.push(...templateList.errors);
+  if (!fillProviderReady) {
+    if (resolvedConfig.fill_provider === 'command' && !commandFillAllowed) {
+      issues.push('fill_provider=command is disabled; set allow_command_fill=true');
+    } else {
+      issues.push(`fill provider "${resolvedConfig.fill_provider}" is not ready`);
+    }
+  }
+  if (!writerRunnerReady) {
+    issues.push(...writerPreflight.errors);
+  }
   if (templateCount === 0) issues.push('no templates exist; run /plashboard quickstart "<description>"');
   if (!activeTemplateId) issues.push('no active template; activate one with /plashboard activate <template-id>');
   if (exposure.data?.dashboard_exists !== true) {
@@ -583,10 +813,38 @@ async function runDoctor(
   if (exposure.data?.local_url_ok !== true) {
     issues.push(`local dashboard server is not reachable at ${String(exposure.data?.local_url || 'http://127.0.0.1:18888')}`);
   }
+  if (exposure.data?.local_dashboard_ok !== true) {
+    issues.push(`dashboard JSON endpoint is not reachable at ${String(exposure.data?.local_dashboard_url || `${String(exposure.data?.local_url || 'http://127.0.0.1:18888')}/data/dashboard.json`)}`);
+  }
   if (exposure.data?.tailscale_status_ok !== true) {
     issues.push('tailscale serve status failed');
   } else if (exposure.data?.tailscale_port_configured !== true) {
     issues.push(`tailscale serve mapping missing for port ${String(exposure.data?.tailscale_https_port || 8444)}`);
+  } else if (exposure.data?.tailscale_target_configured !== true) {
+    issues.push(`tailscale serve mapping does not target ${String(exposure.data?.local_url || 'http://127.0.0.1:18888')}`);
+  }
+  if (Number(exposure.data?.local_dashboard_status_code) === 403) {
+    warnings.push(`dashboard JSON returned 403; run /plashboard fix-permissions to apply compatible read modes.`);
+  }
+
+  const templates = Array.isArray(templateList.data?.templates) ? templateList.data?.templates : [];
+  const activeTemplate = templates?.find((entry) => asString(entry.id) === activeTemplateId);
+  const everyMinutes = asNumber(asObject(activeTemplate?.schedule).every_minutes);
+  const mtimeIso = asString(exposure.data?.dashboard_mtime_utc);
+  if (everyMinutes && mtimeIso) {
+    const ageMs = Date.now() - Date.parse(mtimeIso);
+    const maxAgeMs = Math.max(everyMinutes * 2 * 60_000, 10 * 60_000);
+    if (Number.isFinite(ageMs) && ageMs > maxAgeMs) {
+      issues.push(`dashboard appears stale: last update ${mtimeIso} (age ${Math.floor(ageMs / 60_000)}m)`);
+    }
+  }
+
+  if (!runtimeCommandRunnerAvailable) {
+    warnings.push('runtime command runner unavailable; fill/publish checks may fail in this OpenClaw build.');
+  }
+  const dataDirMode = asNumber(exposure.data?.data_dir_mode);
+  if (typeof dataDirMode === 'number' && (dataDirMode & 0o005) === 0) {
+    warnings.push(`data directory mode ${String(exposure.data?.data_dir_mode_octal || '')} may block containerized web readers.`);
   }
 
   const ready = issues.length === 0;
@@ -595,6 +853,14 @@ async function runDoctor(
     errors: issues,
     data: {
       ready,
+      fill_provider_ready: fillProviderReady,
+      writer_runner_ready: writerRunnerReady,
+      warnings,
+      writer_preflight: {
+        ready: writerPreflight.ready,
+        python_version: writerPreflight.python_version
+      },
+      fill_agent_ids: fillAgentIds,
       status: statusData,
       exposure: exposure.data,
       exposure_guide: exposureGuide.data,
@@ -605,6 +871,7 @@ async function runDoctor(
           'run /plashboard quickstart "<description>" if no templates exist',
           'run /plashboard web-guide and start local UI server',
           'run /plashboard expose-guide and apply tailscale mapping',
+          'run /plashboard fix-permissions if dashboard JSON returns 403',
           're-run /plashboard doctor'
         ]
     }
@@ -614,6 +881,7 @@ async function runDoctor(
 async function runOnboard(
   runtime: PlashboardRuntime,
   resolvedConfig: ReturnType<typeof resolveConfig>,
+  commandRunner: CommandRunner | null,
   params: OnboardParams = {}
 ): Promise<ToolResponse<Record<string, unknown>>> {
   const initResult = await runtime.init();
@@ -625,7 +893,7 @@ async function runOnboard(
 
   let quickstartResult: ToolResponse<Record<string, unknown>> | null = null;
   if (shouldQuickstart) {
-    quickstartResult = await runQuickstart(runtime, resolvedConfig, {
+    quickstartResult = await runQuickstart(runtime, resolvedConfig, commandRunner, {
       description: params.description,
       template_id: params.template_id,
       template_name: params.template_name,
@@ -635,7 +903,7 @@ async function runOnboard(
     });
   }
 
-  const doctorResult = await runDoctor(runtime, resolvedConfig, {
+  const doctorResult = await runDoctor(runtime, resolvedConfig, commandRunner, {
     local_url: params.local_url,
     tailscale_https_port: params.tailscale_https_port,
     dashboard_output_path: params.dashboard_output_path,
@@ -658,36 +926,13 @@ async function runOnboard(
 
 export function registerPlashboardPlugin(api: UnknownApi): void {
   const config = resolveConfig(api);
-  const runtimeCommand = api.runtime?.system?.runCommandWithTimeout;
-  const fillCommandRunner = runtimeCommand
-    ? async (
-      argv: string[],
-      optionsOrTimeout: number | {
-        timeoutMs: number;
-        cwd?: string;
-        input?: string;
-        env?: NodeJS.ProcessEnv;
-        windowsVerbatimArguments?: boolean;
-        noOutputTimeoutMs?: number;
-      }
-    ) => {
-      const result = await runtimeCommand(argv, optionsOrTimeout);
-      return {
-        stdout: result.stdout,
-        stderr: result.stderr,
-        code: result.code,
-        signal: result.signal,
-        killed: result.killed,
-        termination: result.termination
-      };
-    }
-    : undefined;
+  const commandRunner = createRuntimeCommandRunner(api.runtime?.system?.runCommandWithTimeout);
   const runtime = new PlashboardRuntime(config, {
     info: (...args) => api.logger?.info?.(...args),
     warn: (...args) => api.logger?.warn?.(...args),
     error: (...args) => api.logger?.error?.(...args)
   }, {
-    commandRunner: fillCommandRunner
+    commandRunner
   });
 
   api.registerService?.({
@@ -722,7 +967,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       additionalProperties: false
     },
     execute: async (_toolCallId: unknown, params: OnboardParams = {}) =>
-      toToolResult(await runOnboard(runtime, config, params))
+      toToolResult(await runOnboard(runtime, config, commandRunner, params))
   });
 
   api.registerTool?.({
@@ -756,7 +1001,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       additionalProperties: false
     },
     execute: async (_toolCallId: unknown, params: ExposureParams = {}) =>
-      toToolResult(await runExposureCheck(config, params))
+      toToolResult(await runExposureCheck(config, commandRunner, params))
   });
 
   api.registerTool?.({
@@ -790,7 +1035,22 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       additionalProperties: false
     },
     execute: async (_toolCallId: unknown, params: DoctorParams = {}) =>
-      toToolResult(await runDoctor(runtime, config, params))
+      toToolResult(await runDoctor(runtime, config, commandRunner, params))
+  });
+
+  api.registerTool?.({
+    name: 'plashboard_permissions_fix',
+    description: 'Apply compatibility file modes for dashboard web readers (explicit action).',
+    optional: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        dashboard_output_path: { type: 'string' }
+      },
+      additionalProperties: false
+    },
+    execute: async (_toolCallId: unknown, params: PermissionsFixParams = {}) =>
+      toToolResult(await runPermissionsFix(config, params))
   });
 
   api.registerTool?.({
@@ -801,6 +1061,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       type: 'object',
       properties: {
         fill_provider: { type: 'string', enum: ['mock', 'command', 'openclaw'] },
+        allow_command_fill: { type: 'boolean' },
         fill_command: { type: 'string' },
         openclaw_fill_agent_id: { type: 'string' },
         auto_seed_template: { type: 'boolean' },
@@ -817,7 +1078,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       additionalProperties: false
     },
     execute: async (_toolCallId: unknown, params: SetupParams = {}) =>
-      toToolResult(await runSetup(api, config, params))
+      toToolResult(await runSetup(api, config, commandRunner, params))
   });
 
   api.registerTool?.({
@@ -849,7 +1110,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       additionalProperties: false
     },
     execute: async (_toolCallId: unknown, params: QuickstartParams = {}) =>
-      toToolResult(await runQuickstart(runtime, config, params))
+      toToolResult(await runQuickstart(runtime, config, commandRunner, params))
   });
 
   api.registerTool?.({
@@ -1049,7 +1310,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
         const localUrl = rest.find((token) => token.startsWith('http://') || token.startsWith('https://'));
         const portToken = rest.find((token) => /^[0-9]+$/.test(token));
         return toCommandResult(
-          await runExposureCheck(config, {
+          await runExposureCheck(config, commandRunner, {
             local_url: localUrl,
             tailscale_https_port: portToken ? Number(portToken) : undefined
           })
@@ -1070,10 +1331,17 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
         const portToken = rest.find((token) => /^[0-9]+$/.test(token));
         const repoDir = rest.find((token) => token.startsWith('/'));
         return toCommandResult(
-          await runDoctor(runtime, config, {
+          await runDoctor(runtime, config, commandRunner, {
             local_url: localUrl,
             tailscale_https_port: portToken ? Number(portToken) : undefined,
             repo_dir: repoDir
+          })
+        );
+      }
+      if (cmd === 'fix-permissions') {
+        return toCommandResult(
+          await runPermissionsFix(config, {
+            dashboard_output_path: rest[0]
           })
         );
       }
@@ -1084,7 +1352,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
         const descriptionTokens = rest.filter((token) => token !== localUrl && token !== portToken && token !== repoDir);
         const description = descriptionTokens.join(' ').trim() || undefined;
         return toCommandResult(
-          await runOnboard(runtime, config, {
+          await runOnboard(runtime, config, commandRunner, {
             description,
             local_url: localUrl,
             tailscale_https_port: portToken ? Number(portToken) : undefined,
@@ -1098,8 +1366,9 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
         const fillCommand = fillProvider === 'command' ? rest.slice(1).join(' ').trim() || undefined : undefined;
         const fillAgentId = fillProvider === 'openclaw' ? (rest[1] || '').trim() || undefined : undefined;
         return toCommandResult(
-          await runSetup(api, config, {
+          await runSetup(api, config, commandRunner, {
             fill_provider: fillProvider,
+            allow_command_fill: fillProvider === 'command' ? true : undefined,
             fill_command: fillCommand,
             openclaw_fill_agent_id: fillAgentId
           })
@@ -1107,7 +1376,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       }
       if (cmd === 'quickstart') {
         const description = rest.join(' ').trim() || undefined;
-        return toCommandResult(await runQuickstart(runtime, config, { description }));
+        return toCommandResult(await runQuickstart(runtime, config, commandRunner, { description }));
       }
       if (cmd === 'init') return toCommandResult(await runtime.init());
       if (cmd === 'status') return toCommandResult(await runtime.status());
@@ -1133,7 +1402,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       return toCommandResult({
         ok: false,
         errors: [
-          'unknown command. supported: onboard <description> [local_url] [https_port] [repo_dir], setup [openclaw [agent_id]|mock|command <fill_command>], quickstart <description>, doctor [local_url] [https_port] [repo_dir], web-guide [local_url] [repo_dir], expose-guide [local_url] [https_port], expose-check [local_url] [https_port], init, status, list, activate <id>, delete <id>, copy <src> <new-id> [new-name] [activate], run <id>, set-display <width> <height> <top> <bottom>'
+          'unknown command. supported: onboard <description> [local_url] [https_port] [repo_dir], setup [openclaw [agent_id]|mock|command <fill_command>], quickstart <description>, doctor [local_url] [https_port] [repo_dir], fix-permissions [dashboard_output_path], web-guide [local_url] [repo_dir], expose-guide [local_url] [https_port], expose-check [local_url] [https_port], init, status, list, activate <id>, delete <id>, copy <src> <new-id> [new-name] [activate], run <id>, set-display <width> <height> <top> <bottom>'
         ]
       });
     }

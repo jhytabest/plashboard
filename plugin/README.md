@@ -23,6 +23,7 @@ openclaw plugins update plashboard
 
 No manual config is required for first use. Defaults are safe:
 - `fill_provider=openclaw`
+- `allow_command_fill=false`
 - `openclaw_fill_agent_id=main`
 - automatic init on service start
 - automatic starter template seed when template store is empty
@@ -55,6 +56,7 @@ Add to `openclaw.json`:
           "session_timeout_seconds": 90,
           "auto_seed_template": true,
           "fill_provider": "openclaw",
+          "allow_command_fill": false,
           "openclaw_fill_agent_id": "main",
           "display_profile": {
             "width_px": 1920,
@@ -72,7 +74,20 @@ Add to `openclaw.json`:
 ```
 
 `fill_provider: "openclaw"` is the default real mode and calls `openclaw agent` directly.
-Use `fill_provider: "command"` only if you need a custom external runner.
+`fill_provider: "command"` requires explicit opt-in with `allow_command_fill: true`.
+Use command mode only if you need a custom external runner.
+
+For production stability, use a dedicated fill agent instead of `main`:
+
+```bash
+openclaw agents add plashboard-fill --non-interactive --workspace /var/lib/openclaw/.openclaw/workspace-plashboard-fill
+```
+
+Then run:
+
+```text
+/plashboard setup openclaw plashboard-fill
+```
 
 ## Runtime Command
 
@@ -81,6 +96,7 @@ Use `fill_provider: "command"` only if you need a custom external runner.
 /plashboard setup [openclaw [agent_id]|mock|command <fill_command>]
 /plashboard quickstart <description>
 /plashboard doctor [local_url] [https_port] [repo_dir]
+/plashboard fix-permissions [dashboard_output_path]
 /plashboard web-guide [local_url] [repo_dir]
 /plashboard expose-guide [local_url] [https_port]
 /plashboard expose-check [local_url] [https_port]
@@ -100,12 +116,21 @@ Recommended first run:
 /plashboard onboard "Focus on service health, priorities, blockers, and next actions."
 ```
 
+For command mode, explicit opt-in is required:
+
+```text
+/plashboard setup command <fill_command>
+```
+
+This command writes `allow_command_fill=true` with `fill_provider=command`.
+
 If `onboard` returns web/exposure warnings:
 
 ```text
 /plashboard web-guide
 /plashboard expose-guide
 /plashboard doctor
+/plashboard fix-permissions
 ```
 
 Tailscale helper flow:
@@ -119,3 +144,5 @@ Tailscale helper flow:
 
 - The plugin includes an admin skill (`plashboard-admin`) for tool-guided management.
 - Trusted publishing (OIDC) is enabled in CI/CD for npm releases.
+- If you see `plugins.allow is empty`, add explicit trust list in OpenClaw config:
+  - `"plugins": { "allow": ["plashboard"] }`

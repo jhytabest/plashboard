@@ -52,6 +52,9 @@ jobs:
             echo "package.json already at version $TAG_VERSION"
           fi
 
+      - name: Security scan
+        run: npm run security:scan
+
       - name: Typecheck
         run: npm run typecheck
 

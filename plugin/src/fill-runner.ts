@@ -1,28 +1,8 @@
-import { spawn } from 'node:child_process';
+import { runAndReadStdout, type CommandRunner } from './command-runner.js';
 import type { FillResponse, FillRunContext, FillRunner, PlashboardConfig } from './types.js';
 
-type CommandOptions = {
-  timeoutMs: number;
-  env?: NodeJS.ProcessEnv;
-  input?: string;
-};
-
-export type CommandRunResult = {
-  stdout: string;
-  stderr: string;
-  code: number | null;
-  signal?: NodeJS.Signals | null;
-  killed?: boolean;
-  termination?: 'exit' | 'timeout' | 'signal' | string;
-};
-
-export type CommandRunner = (
-  argv: string[],
-  optionsOrTimeout: number | CommandOptions
-) => Promise<CommandRunResult>;
-
 export interface FillRunnerDeps {
-  commandRunner?: CommandRunner;
+  commandRunner?: CommandRunner | null;
 }
 
 function buildPromptPayload(context: FillRunContext): Record<string, unknown> {
@@ -72,70 +52,6 @@ function mockValue(type: string, currentValue: unknown, fieldId: string): unknow
   if (type === 'array') return Array.isArray(currentValue) ? currentValue : [];
   const now = new Date().toISOString();
   return `updated ${fieldId} at ${now}`;
-}
-
-function normalizeCommandOptions(optionsOrTimeout: number | CommandOptions): CommandOptions {
-  if (typeof optionsOrTimeout === 'number') {
-    return { timeoutMs: optionsOrTimeout };
-  }
-  return { timeoutMs: optionsOrTimeout.timeoutMs, env: optionsOrTimeout.env, input: optionsOrTimeout.input };
-}
-
-function defaultCommandRunner(argv: string[], optionsOrTimeout: number | CommandOptions): Promise<CommandRunResult> {
-  const options = normalizeCommandOptions(optionsOrTimeout);
-  return new Promise((resolve, reject) => {
-    if (!Array.isArray(argv) || argv.length === 0 || !argv[0]) {
-      reject(new Error('command argv must include a binary name'));
-      return;
-    }
-
-    const child = spawn(argv[0], argv.slice(1), {
-      env: {
-        ...process.env,
-        ...(options.env || {})
-      },
-      stdio: 'pipe'
-    });
-
-    const timeoutMs = Math.max(1000, Math.floor(options.timeoutMs));
-    let terminatedByTimeout = false;
-    const timer = setTimeout(() => {
-      terminatedByTimeout = true;
-      child.kill('SIGKILL');
-    }, timeoutMs);
-
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout.on('data', (chunk) => {
-      stdout += String(chunk);
-    });
-    child.stderr.on('data', (chunk) => {
-      stderr += String(chunk);
-    });
-
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-
-    child.on('close', (code, signal) => {
-      clearTimeout(timer);
-      resolve({
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-        code,
-        signal,
-        killed: terminatedByTimeout || code === null,
-        termination: terminatedByTimeout ? 'timeout' : signal ? 'signal' : 'exit'
-      });
-    });
-
-    if (typeof options.input === 'string') {
-      child.stdin.write(options.input);
-    }
-    child.stdin.end();
-  });
 }
 
 function tryParseJson(input: string): unknown | undefined {
@@ -226,20 +142,6 @@ function parseFillResponse(output: string, source: string): FillResponse {
   return extracted;
 }
 
-async function runAndReadStdout(
-  commandRunner: CommandRunner,
-  argv: string[],
-  optionsOrTimeout: number | CommandOptions,
-  label: string
-): Promise<string> {
-  const result = await commandRunner(argv, optionsOrTimeout);
-  if (result.code !== 0) {
-    const reason = result.stderr || result.stdout || result.termination || `exit=${String(result.code)}`;
-    throw new Error(`${label} failed: ${reason}`);
-  }
-  return result.stdout.trim();
-}
-
 class MockFillRunner implements FillRunner {
   async run(context: FillRunContext): Promise<FillResponse> {
     const values: Record<string, unknown> = {};
@@ -253,10 +155,13 @@ class MockFillRunner implements FillRunner {
 class CommandFillRunner implements FillRunner {
   constructor(
     private readonly config: PlashboardConfig,
-    private readonly commandRunner: CommandRunner
+    private readonly commandRunner: CommandRunner | null
   ) {}
 
   async run(context: FillRunContext): Promise<FillResponse> {
+    if (!this.config.allow_command_fill) {
+      throw new Error('fill_provider=command is disabled; set allow_command_fill=true to enable it');
+    }
     if (!this.config.fill_command) {
       throw new Error('fill_provider=command but fill_command is not configured');
     }
@@ -280,7 +185,7 @@ class CommandFillRunner implements FillRunner {
 class OpenClawFillRunner implements FillRunner {
   constructor(
     private readonly config: PlashboardConfig,
-    private readonly commandRunner: CommandRunner
+    private readonly commandRunner: CommandRunner | null
   ) {}
 
   async run(context: FillRunContext): Promise<FillResponse> {
@@ -302,7 +207,7 @@ class OpenClawFillRunner implements FillRunner {
 }
 
 export function createFillRunner(config: PlashboardConfig, deps: FillRunnerDeps = {}): FillRunner {
-  const commandRunner = deps.commandRunner || defaultCommandRunner;
+  const commandRunner = deps.commandRunner ?? null;
   if (config.fill_provider === 'command') {
     return new CommandFillRunner(config, commandRunner);
   }

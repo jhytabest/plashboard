@@ -24,6 +24,7 @@ Always use plugin tools:
 - `plashboard_exposure_check`
 - `plashboard_web_guide`
 - `plashboard_doctor`
+- `plashboard_permissions_fix`
 - `plashboard_init`
 - `plashboard_quickstart`
 - `plashboard_template_create`
@@ -59,6 +60,7 @@ Always use plugin tools:
 - `/plashboard quickstart <description>`
 - `/plashboard setup [openclaw [agent_id]|mock|command <fill_command>]`
 - `/plashboard doctor [local_url] [https_port] [repo_dir]`
+- `/plashboard fix-permissions [dashboard_output_path]`
 - `/plashboard web-guide [local_url] [repo_dir]`
 - `/plashboard expose-guide [local_url] [https_port]`
 - `/plashboard expose-check [local_url] [https_port]`

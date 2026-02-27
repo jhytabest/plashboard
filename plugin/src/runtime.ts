@@ -18,6 +18,7 @@ import { collectCurrentValues, mergeTemplateValues, validateFieldPointers } from
 import { validateFillShape, validateTemplateShape } from './schema-validation.js';
 import { DashboardValidatorPublisher } from './publisher.js';
 import { createFillRunner, type FillRunnerDeps } from './fill-runner.js';
+import type { CommandRunner } from './command-runner.js';
 
 interface Logger {
   info(message: string, ...args: unknown[]): void;
@@ -76,6 +77,7 @@ export class PlashboardRuntime {
   private readonly runStore: RunStore;
   private readonly publisher: DashboardValidatorPublisher;
   private readonly fillRunner: FillRunner;
+  private readonly runtimeCommandRunnerAvailable: boolean;
 
   private schedulerTimer: NodeJS.Timeout | null = null;
   private tickInProgress = false;
@@ -91,7 +93,9 @@ export class PlashboardRuntime {
     this.stateStore = new StateStore(this.paths);
     this.templateStore = new TemplateStore(this.paths);
     this.runStore = new RunStore(this.paths);
-    this.publisher = new DashboardValidatorPublisher(config);
+    const commandRunner: CommandRunner | null = fillRunnerDeps.commandRunner ?? null;
+    this.runtimeCommandRunnerAvailable = Boolean(commandRunner);
+    this.publisher = new DashboardValidatorPublisher(config, commandRunner);
     this.fillRunner = createFillRunner(config, fillRunnerDeps);
   }
 
@@ -462,6 +466,10 @@ export class PlashboardRuntime {
         template_count: templates.length,
         enabled_template_count: templates.filter((entry) => entry.enabled).length,
         running_template_ids: [...this.runningTemplates],
+        capabilities: {
+          runtime_command_runner_available: this.runtimeCommandRunnerAvailable,
+          command_fill_allowed: this.config.allow_command_fill
+        },
         state
       }
     };

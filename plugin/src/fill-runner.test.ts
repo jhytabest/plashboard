@@ -39,6 +39,7 @@ function config(overrides: Partial<PlashboardConfig>): PlashboardConfig {
     session_timeout_seconds: 30,
     auto_seed_template: false,
     fill_provider: 'mock',
+    allow_command_fill: false,
     fill_command: undefined,
     openclaw_fill_agent_id: 'main',
     python_bin: 'python3',
@@ -105,7 +106,7 @@ describe('createFillRunner', () => {
     }));
 
     const runner = createFillRunner(
-      config({ fill_provider: 'command', fill_command: 'echo "$PLASHBOARD_PROMPT_JSON"' }),
+      config({ fill_provider: 'command', allow_command_fill: true, fill_command: 'echo "$PLASHBOARD_PROMPT_JSON"' }),
       { commandRunner }
     );
     const response = await runner.run(context());
@@ -117,5 +118,21 @@ describe('createFillRunner', () => {
     expect(argv.slice(0, 2)).toEqual(['sh', '-lc']);
     const options = firstCall[1] as { env?: Record<string, string> };
     expect(options.env?.PLASHBOARD_PROMPT_JSON).toContain('"template"');
+  });
+
+  it('rejects command fill when allow_command_fill is false', async () => {
+    const commandRunner = vi.fn(async () => ({
+      stdout: '{"values":{"summary":"from command"}}',
+      stderr: '',
+      code: 0
+    }));
+
+    const runner = createFillRunner(
+      config({ fill_provider: 'command', allow_command_fill: false, fill_command: 'echo hello' }),
+      { commandRunner }
+    );
+
+    await expect(runner.run(context())).rejects.toThrow(/allow_command_fill=true/);
+    expect(commandRunner).not.toHaveBeenCalled();
   });
 });

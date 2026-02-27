@@ -1,9 +1,10 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { PlashboardRuntime } from './runtime.js';
 import type { DashboardTemplate, PlashboardConfig } from './types.js';
+import type { CommandRunner } from './command-runner.js';
 
 function baseDashboard() {
   return {
@@ -63,6 +64,7 @@ async function setupRuntime(overrides: Partial<PlashboardConfig> = {}) {
     session_timeout_seconds: 30,
     auto_seed_template: false,
     fill_provider: 'mock',
+    allow_command_fill: false,
     fill_command: undefined,
     python_bin: 'python3',
     writer_script_path: join(process.cwd(), 'scripts', 'dashboard_write.py'),
@@ -80,9 +82,55 @@ async function setupRuntime(overrides: Partial<PlashboardConfig> = {}) {
     ...overrides
   };
 
-  const runtime = new PlashboardRuntime(config);
+  const runtime = new PlashboardRuntime(config, undefined, {
+    commandRunner: createTestCommandRunner()
+  });
   await runtime.init();
   return { runtime, root, config };
+}
+
+function createTestCommandRunner(): CommandRunner {
+  return async (argv: string[]) => {
+    if (argv[0] === 'openclaw' && argv[1] === 'agent') {
+      return {
+        stdout: '{"values":{"summary":"updated summary from openclaw"}}',
+        stderr: '',
+        code: 0
+      };
+    }
+
+    const inputIndex = argv.indexOf('--input');
+    if (argv[0] === 'python3' && inputIndex >= 0) {
+      const inputPath = argv[inputIndex + 1];
+      const outputIndex = argv.indexOf('--output');
+      const validateOnly = argv.includes('--validate-only');
+      const inputText = await readFile(inputPath, 'utf8');
+      const payload = JSON.parse(inputText) as Record<string, unknown>;
+
+      const normalized: Record<string, unknown> = {
+        ...payload,
+        version: typeof payload.version === 'string' ? payload.version : '3.0',
+        generated_at: new Date().toISOString()
+      };
+
+      if (!validateOnly && outputIndex >= 0) {
+        const outputPath = argv[outputIndex + 1];
+        await writeFile(outputPath, `${JSON.stringify(normalized, null, 2)}\n`, 'utf8');
+      }
+
+      return {
+        stdout: 'ok',
+        stderr: '',
+        code: 0
+      };
+    }
+
+    return {
+      stdout: '',
+      stderr: `unsupported test command: ${argv.join(' ')}`,
+      code: 1
+    };
+  };
 }
 
 describe('PlashboardRuntime', () => {
@@ -175,6 +223,8 @@ describe('PlashboardRuntime', () => {
       const status = await runtime.status();
       expect(status.ok).toBe(true);
       expect(status.data?.active_template_id).toBe('starter');
+      expect(status.data?.capabilities.runtime_command_runner_available).toBe(true);
+      expect(status.data?.capabilities.command_fill_allowed).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

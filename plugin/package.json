@@ -1,6 +1,6 @@
 {
   "name": "@jhytabest/plashboard",
-  "version": "0.1.11",
+  "version": "1.0.0",
   "private": false,
   "description": "Plashboard OpenClaw plugin runtime",
   "license": "MIT",
@@ -17,7 +17,7 @@
   "files": [
     "openclaw.plugin.json",
     "schema",
-    "scripts",
+    "scripts/dashboard_write.py",
     "skills",
     "src",
     "tsconfig.json",
@@ -27,6 +27,7 @@
     "access": "public"
   },
   "scripts": {
+    "security:scan": "node ./dev-security-scan.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

@@ -136,6 +136,7 @@ Add plugin config in `openclaw.json`:
           "session_timeout_seconds": 90,
           "auto_seed_template": true,
           "fill_provider": "openclaw",
+          "allow_command_fill": false,
           "openclaw_fill_agent_id": "main",
           "display_profile": {
             "width_px": 1920,
@@ -153,8 +154,20 @@ Add plugin config in `openclaw.json`:
 ```
 
 Default real mode is `fill_provider: "openclaw"` (built-in `openclaw agent` call).
-Optional override: use `fill_provider: "command"` with `fill_command`.
+Optional override: use `fill_provider: "command"` with `fill_command`, but only when `allow_command_fill=true`.
 Custom command mode receives `PLASHBOARD_PROMPT_JSON` and must print strict JSON response.
+
+Recommended for production: use a dedicated fill agent (avoid `main` session lock contention):
+
+```bash
+openclaw agents add plashboard-fill --non-interactive --workspace /var/lib/openclaw/.openclaw/workspace-plashboard-fill
+```
+
+Then:
+
+```text
+/plashboard setup openclaw plashboard-fill
+```
 
 ## Setup Shortcut
 You can bootstrap plugin config from chat (optional):
@@ -166,6 +179,8 @@ You can bootstrap plugin config from chat (optional):
 # or
 /plashboard setup command <fill_command>
 ```
+
+`/plashboard setup command ...` enables `allow_command_fill=true` explicitly.
 
 The setup command writes plugin config and returns `restart_required: true`.
 After restart, run:
@@ -189,6 +204,7 @@ For end users in channels (e.g., Telegram), the bundled `plashboard-admin` skill
 /plashboard web-guide
 /plashboard expose-guide
 /plashboard doctor
+/plashboard fix-permissions
 ```
 
 Tailscale guidance/check from chat:
@@ -196,6 +212,17 @@ Tailscale guidance/check from chat:
 ```text
 /plashboard expose-guide [local_url] [https_port]
 /plashboard expose-check [local_url] [https_port]
+/plashboard fix-permissions [dashboard_output_path]
+```
+
+If you see `plugins.allow is empty` warnings from OpenClaw, explicitly trust plugin ids in config:
+
+```json
+{
+  "plugins": {
+    "allow": ["plashboard"]
+  }
+}
 ```
 
 ## Writer Script
