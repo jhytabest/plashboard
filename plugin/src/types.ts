@@ -23,8 +23,9 @@ export interface PlashboardConfig {
   default_retry_count: number;
   retry_backoff_seconds: number;
   session_timeout_seconds: number;
-  fill_provider: 'command' | 'mock';
+  fill_provider: 'command' | 'mock' | 'openclaw';
   fill_command?: string;
+  openclaw_fill_agent_id?: string;
   python_bin: string;
   writer_script_path: string;
   dashboard_output_path: string;

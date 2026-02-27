@@ -1,6 +1,6 @@
 {
   "name": "@jhytabest/plashboard",
-  "version": "0.1.0",
+  "version": "0.1.6",
   "private": false,
   "description": "Plashboard OpenClaw plugin runtime",
   "license": "MIT",

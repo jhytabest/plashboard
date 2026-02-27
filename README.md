@@ -133,7 +133,8 @@ Add plugin config in `openclaw.json`:
           "default_retry_count": 1,
           "retry_backoff_seconds": 20,
           "session_timeout_seconds": 90,
-          "fill_provider": "mock",
+          "fill_provider": "openclaw",
+          "openclaw_fill_agent_id": "main",
           "display_profile": {
             "width_px": 1920,
             "height_px": 1080,
@@ -149,14 +150,17 @@ Add plugin config in `openclaw.json`:
 }
 ```
 
-Use `fill_provider: "command"` with `fill_command` to call a real OpenClaw session command.
-The command receives `PLASHBOARD_PROMPT_JSON` and must print strict JSON response.
+Default real mode is `fill_provider: "openclaw"` (built-in `openclaw agent` call).
+Optional override: use `fill_provider: "command"` with `fill_command`.
+Custom command mode receives `PLASHBOARD_PROMPT_JSON` and must print strict JSON response.
 
 ## Setup Shortcut
 You can bootstrap plugin config from chat:
 
 ```text
-/plashboard setup mock
+/plashboard setup openclaw
+# or
+/plashboard setup openclaw <agent_id>
 # or
 /plashboard setup command <fill_command>
 ```

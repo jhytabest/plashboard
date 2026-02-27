@@ -50,8 +50,12 @@ export function resolveConfig(api: unknown): PlashboardConfig {
 
   const dataDir = asString(raw.data_dir, '/var/lib/openclaw/plash-data');
   const outputPath = asString(raw.dashboard_output_path, join(dataDir, 'dashboard.json'));
-  const fillProviderRaw = asString(raw.fill_provider, 'mock');
-  const fillProvider = fillProviderRaw === 'command' ? 'command' : 'mock';
+  const fillProviderRaw = asString(raw.fill_provider, 'openclaw');
+  const fillProvider = fillProviderRaw === 'command'
+    ? 'command'
+    : fillProviderRaw === 'mock'
+      ? 'mock'
+      : 'openclaw';
 
   return {
     data_dir: dataDir,
@@ -63,6 +67,7 @@ export function resolveConfig(api: unknown): PlashboardConfig {
     session_timeout_seconds: Math.max(10, Math.floor(asNumber(raw.session_timeout_seconds, 90))),
     fill_provider: fillProvider,
     fill_command: typeof raw.fill_command === 'string' ? raw.fill_command : undefined,
+    openclaw_fill_agent_id: asString(raw.openclaw_fill_agent_id, 'main'),
     python_bin: asString(raw.python_bin, 'python3'),
     writer_script_path: asString(raw.writer_script_path, DEFAULT_WRITER_PATH),
     dashboard_output_path: outputPath,

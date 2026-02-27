@@ -39,7 +39,7 @@ Always use plugin tools:
 - Never ask the model to generate full dashboard structure when filling values.
 
 ## Command Shortcuts
-- `/plashboard setup [mock|command <fill_command>]`
+- `/plashboard setup [openclaw [agent_id]|mock|command <fill_command>]`
 - `/plashboard expose-guide [local_url] [https_port]`
 - `/plashboard expose-check [local_url] [https_port]`
 - `/plashboard init`

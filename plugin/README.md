@@ -35,7 +35,8 @@ Add to `openclaw.json`:
           "default_retry_count": 1,
           "retry_backoff_seconds": 20,
           "session_timeout_seconds": 90,
-          "fill_provider": "mock",
+          "fill_provider": "openclaw",
+          "openclaw_fill_agent_id": "main",
           "display_profile": {
             "width_px": 1920,
             "height_px": 1080,
@@ -51,12 +52,13 @@ Add to `openclaw.json`:
 }
 ```
 
-For real model runs, switch `fill_provider` to `command` and provide `fill_command`.
+`fill_provider: "openclaw"` is the default real mode and calls `openclaw agent` directly.
+Use `fill_provider: "command"` only if you need a custom external runner.
 
 ## Runtime Command
 
 ```text
-/plashboard setup [mock|command <fill_command>]
+/plashboard setup [openclaw [agent_id]|mock|command <fill_command>]
 /plashboard expose-guide [local_url] [https_port]
 /plashboard expose-check [local_url] [https_port]
 /plashboard init
@@ -72,7 +74,7 @@ For real model runs, switch `fill_provider` to `command` and provide `fill_comma
 Recommended first run:
 
 ```text
-/plashboard setup mock
+/plashboard setup openclaw
 /plashboard init
 ```
 

@@ -19,6 +19,26 @@ type UnknownApi = {
       loadConfig?: () => unknown;
       writeConfigFile?: (nextConfig: unknown) => Promise<void>;
     };
+    system?: {
+      runCommandWithTimeout?: (
+        argv: string[],
+        optionsOrTimeout: number | {
+          timeoutMs: number;
+          cwd?: string;
+          input?: string;
+          env?: NodeJS.ProcessEnv;
+          windowsVerbatimArguments?: boolean;
+          noOutputTimeoutMs?: number;
+        }
+      ) => Promise<{
+        stdout: string;
+        stderr: string;
+        code: number | null;
+        signal?: NodeJS.Signals | null;
+        killed?: boolean;
+        termination?: string;
+      }>;
+    };
   };
   config?: unknown;
   pluginConfig?: unknown;
@@ -67,8 +87,9 @@ function asErrorMessage(error: unknown): string {
 }
 
 type SetupParams = {
-  fill_provider?: 'mock' | 'command';
+  fill_provider?: 'mock' | 'command' | 'openclaw';
   fill_command?: string;
+  openclaw_fill_agent_id?: string;
   data_dir?: string;
   scheduler_tick_seconds?: number;
   session_timeout_seconds?: number;
@@ -325,19 +346,34 @@ async function runSetup(api: UnknownApi, resolvedConfig: ReturnType<typeof resol
     )
   };
 
+  const currentProvider = asString(currentPluginConfig.fill_provider);
   const selectedProvider =
     params.fill_provider
-    || (currentPluginConfig.fill_provider === 'command' ? 'command' : currentPluginConfig.fill_provider === 'mock' ? 'mock' : resolvedConfig.fill_provider);
+    || (currentProvider === 'command' || currentProvider === 'mock' || currentProvider === 'openclaw'
+      ? currentProvider
+      : resolvedConfig.fill_provider);
   const selectedCommand = (
     params.fill_command
     || asString(currentPluginConfig.fill_command)
     || asString(resolvedConfig.fill_command)
+  ).trim();
+  const selectedAgentId = (
+    params.openclaw_fill_agent_id
+    || asString(currentPluginConfig.openclaw_fill_agent_id)
+    || asString(resolvedConfig.openclaw_fill_agent_id)
+    || 'main'
   ).trim();
 
   if (selectedProvider === 'command' && !selectedCommand) {
     return {
       ok: false,
       errors: ['fill_provider=command requires fill_command']
+    } satisfies ToolResponse<Record<string, unknown>>;
+  }
+  if (selectedProvider === 'openclaw' && !selectedAgentId) {
+    return {
+      ok: false,
+      errors: ['fill_provider=openclaw requires openclaw_fill_agent_id']
     } satisfies ToolResponse<Record<string, unknown>>;
   }
 
@@ -366,6 +402,13 @@ async function runSetup(api: UnknownApi, resolvedConfig: ReturnType<typeof resol
 
   if (selectedCommand) {
     nextPluginConfig.fill_command = selectedCommand;
+  } else {
+    delete nextPluginConfig.fill_command;
+  }
+  if (selectedProvider === 'openclaw') {
+    nextPluginConfig.openclaw_fill_agent_id = selectedAgentId;
+  } else {
+    delete nextPluginConfig.openclaw_fill_agent_id;
   }
 
   const nextRootConfig = {
@@ -394,6 +437,7 @@ async function runSetup(api: UnknownApi, resolvedConfig: ReturnType<typeof resol
       plugin_id: 'plashboard',
       fill_provider: selectedProvider,
       fill_command: selectedProvider === 'command' ? selectedCommand : undefined,
+      openclaw_fill_agent_id: selectedProvider === 'openclaw' ? selectedAgentId : undefined,
       data_dir: nextPluginConfig.data_dir,
       scheduler_tick_seconds: nextPluginConfig.scheduler_tick_seconds,
       session_timeout_seconds: nextPluginConfig.session_timeout_seconds,
@@ -408,10 +452,36 @@ async function runSetup(api: UnknownApi, resolvedConfig: ReturnType<typeof resol
 
 export function registerPlashboardPlugin(api: UnknownApi): void {
   const config = resolveConfig(api);
+  const runtimeCommand = api.runtime?.system?.runCommandWithTimeout;
+  const fillCommandRunner = runtimeCommand
+    ? async (
+      argv: string[],
+      optionsOrTimeout: number | {
+        timeoutMs: number;
+        cwd?: string;
+        input?: string;
+        env?: NodeJS.ProcessEnv;
+        windowsVerbatimArguments?: boolean;
+        noOutputTimeoutMs?: number;
+      }
+    ) => {
+      const result = await runtimeCommand(argv, optionsOrTimeout);
+      return {
+        stdout: result.stdout,
+        stderr: result.stderr,
+        code: result.code,
+        signal: result.signal,
+        killed: result.killed,
+        termination: result.termination
+      };
+    }
+    : undefined;
   const runtime = new PlashboardRuntime(config, {
     info: (...args) => api.logger?.info?.(...args),
     warn: (...args) => api.logger?.warn?.(...args),
     error: (...args) => api.logger?.error?.(...args)
+  }, {
+    commandRunner: fillCommandRunner
   });
 
   api.registerService?.({
@@ -465,8 +535,9 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
     parameters: {
       type: 'object',
       properties: {
-        fill_provider: { type: 'string', enum: ['mock', 'command'] },
+        fill_provider: { type: 'string', enum: ['mock', 'command', 'openclaw'] },
         fill_command: { type: 'string' },
+        openclaw_fill_agent_id: { type: 'string' },
         data_dir: { type: 'string' },
         scheduler_tick_seconds: { type: 'number' },
         session_timeout_seconds: { type: 'number' },
@@ -685,9 +756,16 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       }
       if (cmd === 'setup') {
         const mode = asString(rest[0]).toLowerCase();
-        const fillProvider = mode === 'command' || mode === 'mock' ? mode : undefined;
+        const fillProvider = mode === 'command' || mode === 'mock' || mode === 'openclaw' ? mode : undefined;
         const fillCommand = fillProvider === 'command' ? rest.slice(1).join(' ').trim() || undefined : undefined;
-        return toCommandResult(await runSetup(api, config, { fill_provider: fillProvider, fill_command: fillCommand }));
+        const fillAgentId = fillProvider === 'openclaw' ? (rest[1] || '').trim() || undefined : undefined;
+        return toCommandResult(
+          await runSetup(api, config, {
+            fill_provider: fillProvider,
+            fill_command: fillCommand,
+            openclaw_fill_agent_id: fillAgentId
+          })
+        );
       }
       if (cmd === 'init') return toCommandResult(await runtime.init());
       if (cmd === 'status') return toCommandResult(await runtime.status());
@@ -713,7 +791,7 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
       return toCommandResult({
         ok: false,
         errors: [
-          'unknown command. supported: setup [mock|command <fill_command>], expose-guide [local_url] [https_port], expose-check [local_url] [https_port], init, status, list, activate <id>, delete <id>, copy <src> <new-id> [new-name] [activate], run <id>, set-display <width> <height> <top> <bottom>'
+          'unknown command. supported: setup [openclaw [agent_id]|mock|command <fill_command>], expose-guide [local_url] [https_port], expose-check [local_url] [https_port], init, status, list, activate <id>, delete <id>, copy <src> <new-id> [new-name] [activate], run <id>, set-display <width> <height> <top> <bottom>'
         ]
       });
     }

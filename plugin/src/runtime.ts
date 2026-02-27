@@ -5,6 +5,7 @@ import type {
   DashboardTemplate,
   DisplayProfile,
   FillResponse,
+  FillRunner,
   PlashboardConfig,
   PlashboardState,
   RunArtifact,
@@ -16,7 +17,7 @@ import { asErrorMessage, atomicWriteJson, deepClone, ensureDir, nowIso, sleep } 
 import { collectCurrentValues, mergeTemplateValues, validateFieldPointers } from './merge.js';
 import { validateFillShape, validateTemplateShape } from './schema-validation.js';
 import { DashboardValidatorPublisher } from './publisher.js';
-import { createFillRunner } from './fill-runner.js';
+import { createFillRunner, type FillRunnerDeps } from './fill-runner.js';
 
 interface Logger {
   info(message: string, ...args: unknown[]): void;
@@ -55,7 +56,7 @@ export class PlashboardRuntime {
   private readonly templateStore: TemplateStore;
   private readonly runStore: RunStore;
   private readonly publisher: DashboardValidatorPublisher;
-  private readonly fillRunner;
+  private readonly fillRunner: FillRunner;
 
   private schedulerTimer: NodeJS.Timeout | null = null;
   private tickInProgress = false;
@@ -64,14 +65,15 @@ export class PlashboardRuntime {
 
   constructor(
     private readonly config: PlashboardConfig,
-    private readonly logger: Logger = NOOP_LOGGER
+    private readonly logger: Logger = NOOP_LOGGER,
+    fillRunnerDeps: FillRunnerDeps = {}
   ) {
     this.paths = new Paths(config);
     this.stateStore = new StateStore(this.paths);
     this.templateStore = new TemplateStore(this.paths);
     this.runStore = new RunStore(this.paths);
     this.publisher = new DashboardValidatorPublisher(config);
-    this.fillRunner = createFillRunner(config);
+    this.fillRunner = createFillRunner(config, fillRunnerDeps);
   }
 
   async start(): Promise<void> {
