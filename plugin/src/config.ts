@@ -38,10 +38,6 @@ function asObject(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function asSessionStrategy(value: unknown): PlashboardConfig['session_strategy'] {
-  return value === 'ephemeral' ? 'ephemeral' : 'persistent';
-}
-
 function resolveDisplayProfile(raw: unknown): DisplayProfile {
   const data = asObject(raw);
   return {
@@ -84,7 +80,6 @@ export function resolveConfig(api: unknown): PlashboardConfig {
     allow_command_fill: asBoolean(raw.allow_command_fill, false),
     fill_command: typeof raw.fill_command === 'string' ? raw.fill_command : undefined,
     openclaw_fill_agent_id: asString(raw.openclaw_fill_agent_id, 'main'),
-    session_strategy: asSessionStrategy(raw.session_strategy),
     python_bin: asString(raw.python_bin, 'python3'),
     writer_script_path: asString(raw.writer_script_path, DEFAULT_WRITER_PATH),
     dashboard_output_path: outputPath,

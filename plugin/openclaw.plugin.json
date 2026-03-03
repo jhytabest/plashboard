@@ -20,7 +20,6 @@
       "allow_command_fill": { "type": "boolean", "default": false },
       "fill_command": { "type": "string" },
       "openclaw_fill_agent_id": { "type": "string", "default": "main" },
-      "session_strategy": { "type": "string", "enum": ["persistent", "ephemeral"], "default": "persistent" },
       "python_bin": { "type": "string", "default": "python3" },
       "writer_script_path": { "type": "string" },
       "dashboard_output_path": { "type": "string" },

@@ -25,7 +25,6 @@ No manual config is required for first use. Defaults are safe:
 - `fill_provider=openclaw`
 - `allow_command_fill=false`
 - `openclaw_fill_agent_id=main`
-- `session_strategy=persistent`
 - automatic init on service start
 - automatic starter template seed when template store is empty
 
@@ -59,7 +58,6 @@ Add to `openclaw.json`:
           "fill_provider": "openclaw",
           "allow_command_fill": false,
           "openclaw_fill_agent_id": "main",
-          "session_strategy": "persistent",
           "display_profile": {
             "width_px": 1920,
             "height_px": 1080,
@@ -79,32 +77,11 @@ Add to `openclaw.json`:
 `fill_provider: "command"` requires explicit opt-in with `allow_command_fill: true`.
 Use command mode only if you need a custom external runner.
 
-`session_strategy` controls OpenClaw session reuse for fills:
-- `persistent` (default): reuses the agent's normal long-lived session behavior.
-- `ephemeral`: each fill run gets a unique `--session-id`; after the run, plugin performs best-effort cleanup via official CLI API: `openclaw sessions delete --agent <id> --session-id <id>`.
+OpenClaw fill sessions are always cleaned through official Gateway API calls:
+- Pre-run: `openclaw gateway call sessions.reset --params '{"key":"agent:<fill_agent_id>:main","reason":"new"}'`
+- Post-run: same reset call as best-effort cleanup.
 
-Tradeoffs:
-- `persistent` keeps conversational memory/context between runs.
-- `ephemeral` isolates runs and avoids long-lived context drift, but loses cross-run memory and adds one cleanup CLI call per run.
-
-Example ephemeral config:
-
-```json
-{
-  "plugins": {
-    "entries": {
-      "plashboard": {
-        "enabled": true,
-        "config": {
-          "fill_provider": "openclaw",
-          "openclaw_fill_agent_id": "plashboard-fill",
-          "session_strategy": "ephemeral"
-        }
-      }
-    }
-  }
-}
-```
+This keeps fill runs stateless without editing OpenClaw session files directly.
 
 For production stability, use a dedicated fill agent instead of `main`:
 

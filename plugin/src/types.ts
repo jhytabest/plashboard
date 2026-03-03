@@ -15,8 +15,6 @@ export interface ModelDefaults {
   max_tokens?: number;
 }
 
-export type SessionStrategy = 'persistent' | 'ephemeral';
-
 export interface PlashboardConfig {
   data_dir: string;
   timezone: string;
@@ -30,7 +28,6 @@ export interface PlashboardConfig {
   allow_command_fill: boolean;
   fill_command?: string;
   openclaw_fill_agent_id?: string;
-  session_strategy: SessionStrategy;
   python_bin: string;
   writer_script_path: string;
   dashboard_output_path: string;

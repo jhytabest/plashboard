@@ -66,7 +66,6 @@ async function setupRuntime(overrides: Partial<PlashboardConfig> = {}) {
     fill_provider: 'mock',
     allow_command_fill: false,
     fill_command: undefined,
-    session_strategy: 'persistent',
     python_bin: 'python3',
     writer_script_path: join(process.cwd(), 'scripts', 'dashboard_write.py'),
     dashboard_output_path: join(root, 'dashboard.json'),

@@ -80,7 +80,6 @@ type SetupParams = {
   allow_command_fill?: boolean;
   fill_command?: string;
   openclaw_fill_agent_id?: string;
-  session_strategy?: 'persistent' | 'ephemeral';
   auto_seed_template?: boolean;
   data_dir?: string;
   scheduler_tick_seconds?: number;
@@ -515,10 +514,6 @@ async function runSetup(
     || asString(resolvedConfig.openclaw_fill_agent_id)
     || 'main'
   ).trim();
-  const rawSessionStrategy = asString(params.session_strategy)
-    || asString(currentPluginConfig.session_strategy)
-    || asString(resolvedConfig.session_strategy);
-  const selectedSessionStrategy = rawSessionStrategy === 'ephemeral' ? 'ephemeral' : 'persistent';
 
   if (selectedProvider === 'command' && !selectedCommand) {
     return {
@@ -592,10 +587,10 @@ async function runSetup(
     ),
     fill_provider: selectedProvider,
     allow_command_fill: selectedAllowCommandFill,
-    session_strategy: selectedSessionStrategy,
     auto_seed_template: selectedAutoSeed,
     display_profile: displayProfile
   };
+  delete nextPluginConfig.session_strategy;
 
   if (selectedCommand) {
     nextPluginConfig.fill_command = selectedCommand;
@@ -636,7 +631,6 @@ async function runSetup(
       allow_command_fill: selectedAllowCommandFill,
       fill_command: selectedProvider === 'command' ? selectedCommand : undefined,
       openclaw_fill_agent_id: selectedProvider === 'openclaw' ? selectedAgentId : undefined,
-      session_strategy: selectedSessionStrategy,
       auto_seed_template: selectedAutoSeed,
       data_dir: nextPluginConfig.data_dir,
       scheduler_tick_seconds: nextPluginConfig.scheduler_tick_seconds,
@@ -1071,7 +1065,6 @@ export function registerPlashboardPlugin(api: UnknownApi): void {
         allow_command_fill: { type: 'boolean' },
         fill_command: { type: 'string' },
         openclaw_fill_agent_id: { type: 'string' },
-        session_strategy: { type: 'string', enum: ['persistent', 'ephemeral'] },
         auto_seed_template: { type: 'boolean' },
         data_dir: { type: 'string' },
         scheduler_tick_seconds: { type: 'number' },

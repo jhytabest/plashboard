@@ -5,8 +5,6 @@ export interface FillRunnerDeps {
   commandRunner?: CommandRunner | null;
 }
 
-let ephemeralSessionCounter = 0;
-
 function buildPromptPayload(context: FillRunContext): Record<string, unknown> {
   return {
     instructions: {
@@ -144,23 +142,67 @@ function parseFillResponse(output: string, source: string): FillResponse {
   return extracted;
 }
 
-function sanitizeSessionToken(input: string): string {
-  return input.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || 'x';
+function extractGatewayCallErrorMessage(value: unknown): string | undefined {
+  const objectValue = asObject(value);
+  if (!objectValue) return undefined;
+
+  if (objectValue.ok === false) {
+    const rootMessage = typeof objectValue.message === 'string' ? objectValue.message.trim() : '';
+    if (rootMessage) return rootMessage;
+
+    const rootError = asObject(objectValue.error);
+    if (rootError) {
+      const nestedMessage = typeof rootError.message === 'string' ? rootError.message.trim() : '';
+      if (nestedMessage) return nestedMessage;
+    }
+    return 'gateway returned ok=false';
+  }
+
+  const errorValue = asObject(objectValue.error);
+  if (!errorValue) return undefined;
+  const message = typeof errorValue.message === 'string' ? errorValue.message.trim() : '';
+  return message || 'gateway returned error';
 }
 
-function nextEphemeralSessionCounter(): number {
-  ephemeralSessionCounter += 1;
-  return ephemeralSessionCounter;
+function fillSessionKey(agentId: string): string {
+  return `agent:${agentId}:main`;
 }
 
-function buildEphemeralSessionId(agentId: string, context: FillRunContext): string {
-  const templateId = sanitizeSessionToken(context.template.id || 'template');
-  const agent = sanitizeSessionToken(agentId || 'agent');
-  const attempt = Math.max(1, Math.floor(context.attempt || 1));
-  const now = Date.now().toString(36);
-  const pid = process.pid.toString(36);
-  const seq = nextEphemeralSessionCounter().toString(36);
-  return `plash-${agent}-${templateId}-a${attempt}-${pid}-${now}-${seq}`;
+async function resetFillSession(
+  commandRunner: CommandRunner | null,
+  agentId: string,
+  timeoutSeconds: number,
+  required: boolean
+): Promise<void> {
+  const sessionKey = fillSessionKey(agentId);
+  const params = JSON.stringify({
+    key: sessionKey,
+    reason: 'new'
+  });
+  const result = await runCommand(
+    commandRunner,
+    ['openclaw', 'gateway', 'call', 'sessions.reset', '--json', '--params', params],
+    {
+      timeoutMs: Math.max(10, timeoutSeconds) * 1000
+    },
+    'openclaw fill session reset'
+  );
+
+  const fail = (reason: string) => {
+    if (!required) return;
+    throw new Error(`openclaw fill session reset failed for ${sessionKey}: ${reason}`);
+  };
+
+  if (!result.ok) {
+    fail(result.error || result.stderr || result.stdout || `exit=${String(result.code)}`);
+    return;
+  }
+
+  const parsed = parseJsonCandidate(result.stdout);
+  const gatewayError = parsed !== undefined ? extractGatewayCallErrorMessage(parsed) : undefined;
+  if (gatewayError) {
+    fail(gatewayError);
+  }
 }
 
 class MockFillRunner implements FillRunner {
@@ -213,12 +255,10 @@ class OpenClawFillRunner implements FillRunner {
     const agentId = (this.config.openclaw_fill_agent_id || 'main').trim() || 'main';
     const timeoutSeconds = Math.max(10, Math.floor(this.config.session_timeout_seconds));
     const message = buildOpenClawMessage(context);
-    const ephemeral = this.config.session_strategy === 'ephemeral';
-    const sessionId = ephemeral ? buildEphemeralSessionId(agentId, context) : undefined;
     const argv = ['openclaw', 'agent', '--agent', agentId, '--message', message, '--json', '--timeout', String(timeoutSeconds)];
-    if (sessionId) {
-      argv.push('--session-id', sessionId);
-    }
+
+    // Always force a fresh fill session via official Gateway session API.
+    await resetFillSession(this.commandRunner, agentId, timeoutSeconds, true);
 
     try {
       const output = await runAndReadStdout(
@@ -232,17 +272,7 @@ class OpenClawFillRunner implements FillRunner {
 
       return parseFillResponse(output, 'openclaw fill');
     } finally {
-      if (ephemeral && sessionId) {
-        // Best-effort cleanup through official CLI API; never mutate session files directly.
-        await runCommand(
-          this.commandRunner,
-          ['openclaw', 'sessions', 'delete', '--agent', agentId, '--session-id', sessionId, '--json'],
-          {
-            timeoutMs: Math.max(5, timeoutSeconds) * 1000
-          },
-          'openclaw ephemeral session cleanup'
-        );
-      }
+      await resetFillSession(this.commandRunner, agentId, timeoutSeconds, false);
     }
   }
 }
