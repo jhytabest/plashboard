@@ -42,6 +42,7 @@ function config(overrides: Partial<PlashboardConfig>): PlashboardConfig {
     allow_command_fill: false,
     fill_command: undefined,
     openclaw_fill_agent_id: 'main',
+    session_strategy: 'persistent',
     python_bin: 'python3',
     writer_script_path: '/tmp/writer.py',
     dashboard_output_path: '/tmp/dashboard.json',
@@ -68,7 +69,7 @@ function context(): FillRunContext {
 }
 
 describe('createFillRunner', () => {
-  it('parses openclaw json envelope output', async () => {
+  it('persistent mode keeps standard openclaw agent session behavior', async () => {
     const commandRunner = vi.fn(async (_argv: string[], _options: unknown) => ({
       stdout: JSON.stringify({
         result: {
@@ -96,6 +97,108 @@ describe('createFillRunner', () => {
     expect(argv.slice(0, 2)).toEqual(['openclaw', 'agent']);
     expect(argv).toContain('--agent');
     expect(argv).toContain('ops');
+    expect(argv).not.toContain('--session-id');
+  });
+
+  it('ephemeral mode uses unique session ids and official cleanup command', async () => {
+    const calls: string[][] = [];
+    const commandRunner = vi.fn(async (argv: string[], _options: unknown) => {
+      calls.push(argv);
+      if (argv[0] === 'openclaw' && argv[1] === 'agent') {
+        return {
+          stdout: '{"values":{"summary":"new summary"}}',
+          stderr: '',
+          code: 0
+        };
+      }
+      if (argv[0] === 'openclaw' && argv[1] === 'sessions' && argv[2] === 'delete') {
+        return {
+          stdout: '{"ok":true}',
+          stderr: '',
+          code: 0
+        };
+      }
+      return {
+        stdout: '',
+        stderr: `unsupported command: ${argv.join(' ')}`,
+        code: 1
+      };
+    });
+
+    const runner = createFillRunner(
+      config({
+        fill_provider: 'openclaw',
+        openclaw_fill_agent_id: 'ops',
+        session_strategy: 'ephemeral'
+      }),
+      { commandRunner }
+    );
+
+    await runner.run(context());
+    await runner.run(context());
+
+    const agentCalls = calls.filter((argv) => argv[0] === 'openclaw' && argv[1] === 'agent');
+    const cleanupCalls = calls.filter((argv) => argv[0] === 'openclaw' && argv[1] === 'sessions' && argv[2] === 'delete');
+
+    expect(agentCalls).toHaveLength(2);
+    expect(cleanupCalls).toHaveLength(2);
+
+    const firstSessionFlagIndex = agentCalls[0].indexOf('--session-id');
+    const secondSessionFlagIndex = agentCalls[1].indexOf('--session-id');
+    expect(firstSessionFlagIndex).toBeGreaterThan(-1);
+    expect(secondSessionFlagIndex).toBeGreaterThan(-1);
+    const firstSessionId = agentCalls[0][firstSessionFlagIndex + 1];
+    const secondSessionId = agentCalls[1][secondSessionFlagIndex + 1];
+    expect(firstSessionId).toBeTruthy();
+    expect(secondSessionId).toBeTruthy();
+    expect(firstSessionId).not.toBe(secondSessionId);
+
+    for (const [index, cleanupCall] of cleanupCalls.entries()) {
+      expect(cleanupCall.slice(0, 3)).toEqual(['openclaw', 'sessions', 'delete']);
+      expect(cleanupCall).toContain('--agent');
+      expect(cleanupCall).toContain('ops');
+      const cleanupSessionFlagIndex = cleanupCall.indexOf('--session-id');
+      expect(cleanupSessionFlagIndex).toBeGreaterThan(-1);
+      expect(cleanupCall[cleanupSessionFlagIndex + 1]).toBe(index === 0 ? firstSessionId : secondSessionId);
+    }
+  });
+
+  it('ephemeral cleanup failure is safe and does not fail fill output', async () => {
+    const commandRunner = vi.fn(async (argv: string[], _options: unknown) => {
+      if (argv[0] === 'openclaw' && argv[1] === 'agent') {
+        return {
+          stdout: '{"values":{"summary":"new summary"}}',
+          stderr: '',
+          code: 0
+        };
+      }
+      if (argv[0] === 'openclaw' && argv[1] === 'sessions' && argv[2] === 'delete') {
+        return {
+          stdout: '',
+          stderr: 'session cleanup failed',
+          code: 1
+        };
+      }
+      return {
+        stdout: '',
+        stderr: `unsupported command: ${argv.join(' ')}`,
+        code: 1
+      };
+    });
+
+    const runner = createFillRunner(
+      config({
+        fill_provider: 'openclaw',
+        openclaw_fill_agent_id: 'ops',
+        session_strategy: 'ephemeral'
+      }),
+      { commandRunner }
+    );
+    const response = await runner.run(context());
+
+    expect(response.values.summary).toBe('new summary');
+    expect(commandRunner).toHaveBeenCalledTimes(2);
+    expect(commandRunner.mock.calls[1][0].slice(0, 3)).toEqual(['openclaw', 'sessions', 'delete']);
   });
 
   it('parses command runner fenced json output', async () => {

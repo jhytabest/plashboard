@@ -1,9 +1,11 @@
-import { runAndReadStdout, type CommandRunner } from './command-runner.js';
+import { runAndReadStdout, runCommand, type CommandRunner } from './command-runner.js';
 import type { FillResponse, FillRunContext, FillRunner, PlashboardConfig } from './types.js';
 
 export interface FillRunnerDeps {
   commandRunner?: CommandRunner | null;
 }
+
+let ephemeralSessionCounter = 0;
 
 function buildPromptPayload(context: FillRunContext): Record<string, unknown> {
   return {
@@ -142,6 +144,25 @@ function parseFillResponse(output: string, source: string): FillResponse {
   return extracted;
 }
 
+function sanitizeSessionToken(input: string): string {
+  return input.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || 'x';
+}
+
+function nextEphemeralSessionCounter(): number {
+  ephemeralSessionCounter += 1;
+  return ephemeralSessionCounter;
+}
+
+function buildEphemeralSessionId(agentId: string, context: FillRunContext): string {
+  const templateId = sanitizeSessionToken(context.template.id || 'template');
+  const agent = sanitizeSessionToken(agentId || 'agent');
+  const attempt = Math.max(1, Math.floor(context.attempt || 1));
+  const now = Date.now().toString(36);
+  const pid = process.pid.toString(36);
+  const seq = nextEphemeralSessionCounter().toString(36);
+  return `plash-${agent}-${templateId}-a${attempt}-${pid}-${now}-${seq}`;
+}
+
 class MockFillRunner implements FillRunner {
   async run(context: FillRunContext): Promise<FillResponse> {
     const values: Record<string, unknown> = {};
@@ -192,17 +213,37 @@ class OpenClawFillRunner implements FillRunner {
     const agentId = (this.config.openclaw_fill_agent_id || 'main').trim() || 'main';
     const timeoutSeconds = Math.max(10, Math.floor(this.config.session_timeout_seconds));
     const message = buildOpenClawMessage(context);
+    const ephemeral = this.config.session_strategy === 'ephemeral';
+    const sessionId = ephemeral ? buildEphemeralSessionId(agentId, context) : undefined;
+    const argv = ['openclaw', 'agent', '--agent', agentId, '--message', message, '--json', '--timeout', String(timeoutSeconds)];
+    if (sessionId) {
+      argv.push('--session-id', sessionId);
+    }
 
-    const output = await runAndReadStdout(
-      this.commandRunner,
-      ['openclaw', 'agent', '--agent', agentId, '--message', message, '--json', '--timeout', String(timeoutSeconds)],
-      {
-        timeoutMs: (timeoutSeconds + 30) * 1000
-      },
-      'openclaw fill'
-    );
+    try {
+      const output = await runAndReadStdout(
+        this.commandRunner,
+        argv,
+        {
+          timeoutMs: (timeoutSeconds + 30) * 1000
+        },
+        'openclaw fill'
+      );
 
-    return parseFillResponse(output, 'openclaw fill');
+      return parseFillResponse(output, 'openclaw fill');
+    } finally {
+      if (ephemeral && sessionId) {
+        // Best-effort cleanup through official CLI API; never mutate session files directly.
+        await runCommand(
+          this.commandRunner,
+          ['openclaw', 'sessions', 'delete', '--agent', agentId, '--session-id', sessionId, '--json'],
+          {
+            timeoutMs: Math.max(5, timeoutSeconds) * 1000
+          },
+          'openclaw ephemeral session cleanup'
+        );
+      }
+    }
   }
 }
 

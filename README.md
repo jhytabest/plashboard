@@ -138,6 +138,7 @@ Add plugin config in `openclaw.json`:
           "fill_provider": "openclaw",
           "allow_command_fill": false,
           "openclaw_fill_agent_id": "main",
+          "session_strategy": "persistent",
           "display_profile": {
             "width_px": 1920,
             "height_px": 1080,
@@ -156,6 +157,14 @@ Add plugin config in `openclaw.json`:
 Default real mode is `fill_provider: "openclaw"` (built-in `openclaw agent` call).
 Optional override: use `fill_provider: "command"` with `fill_command`, but only when `allow_command_fill=true`.
 Custom command mode receives `PLASHBOARD_PROMPT_JSON` and must print strict JSON response.
+
+`session_strategy` controls OpenClaw session handling for fills:
+- `persistent` (default): keeps normal long-lived agent session reuse.
+- `ephemeral`: forces a unique `--session-id` on each fill run and performs best-effort cleanup through `openclaw sessions delete --agent <id> --session-id <id>`.
+
+Tradeoff summary:
+- `persistent`: better memory continuity between runs.
+- `ephemeral`: cleaner isolation between runs, with no direct plugin edits to session store internals.
 
 Recommended for production: use a dedicated fill agent (avoid `main` session lock contention):
 
